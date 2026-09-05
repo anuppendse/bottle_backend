@@ -5,9 +5,11 @@ from datetime import datetime, date
 try:
     from enum import StrEnum
 except ImportError:  # Python < 3.11 fallback — StrEnum was added in 3.11
+
     class StrEnum(str, enum.Enum):
         def __str__(self):
             return str(self.value)
+
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -45,7 +47,9 @@ class Role(StrEnum):
     EMPLOYEE = "Employee"
 
 
-ROLES = [r.value for r in Role]  # kept as a plain list — existing code iterates/validates against it
+ROLES = [
+    r.value for r in Role
+]  # kept as a plain list — existing code iterates/validates against it
 ROLE_ENUM_TYPE = _enum_column_type(Role, "role_enum")
 
 
@@ -76,7 +80,9 @@ class RedownloadStatus(StrEnum):
 
 
 REDOWNLOAD_STATUSES = [s.value for s in RedownloadStatus]
-REDOWNLOAD_STATUS_ENUM_TYPE = _enum_column_type(RedownloadStatus, "redownload_status_enum")
+REDOWNLOAD_STATUS_ENUM_TYPE = _enum_column_type(
+    RedownloadStatus, "redownload_status_enum"
+)
 
 
 def normalize_role(role_text: str) -> str:
@@ -107,17 +113,21 @@ def normalize_role(role_text: str) -> str:
 class Permission(db.Model):
     """A node in the permissions tree (e.g. 'products' or its child
     'products.add')."""
-    __tablename__ = "permissions"
-    key = db.Column(db.String(50), primary_key=True)
-    label = db.Column(db.String(100), nullable=False)
-    parent_key = db.Column(db.String(50), db.ForeignKey("permissions.key"), nullable=True)
-    section = db.Column(db.String(50), nullable=True)  # sidebar section, e.g. "Operate"
-    sort_order = db.Column(db.Integer, nullable=False, default=0)
 
-    children = db.relationship("Permission", backref=db.backref("parent", remote_side=[key]))
+    __tablename__ = "permissions"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    key = db.Column(db.String(50), unique=True)
+    label = db.Column(db.String(100), nullable=True)
+    parent_key = db.Column(
+        db.String(50), db.ForeignKey("permissions.key"), nullable=True
+    )
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    children = db.relationship(
+        "Permission", backref=db.backref("parent", remote_side=[key])
+    )
 
     def to_dict(self):
-        return {"key": self.key, "label": self.label}
+        return {"key": self.key, "label": self.label, "parent_key": self.parent_key}
 
 
 class RolePermission(db.Model):
@@ -125,10 +135,13 @@ class RolePermission(db.Model):
     (role, permission_key). `granted` mirrors UserPermission's
     true/false flag rather than presence-of-row being the only
     signal."""
+
     __tablename__ = "role_permissions"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     role = db.Column(ROLE_ENUM_TYPE, nullable=False)
-    permission_key = db.Column(db.String(50), db.ForeignKey("permissions.key"), nullable=False)
+    permission_id = db.Column(
+        db.Integer, db.ForeignKey("permissions.id"), nullable=False
+    )
     granted = db.Column(db.Boolean, nullable=False, default=True)
 
     __table_args__ = (
@@ -144,14 +157,16 @@ def default_permissions_for_role(role_name: str):
     to happen before the query, not inside it."""
     if not role_name:
         return []
-    canonical = next((r for r in Role if r.value.lower() == role_name.strip().lower()), None)
+    canonical = next(
+        (r for r in Role if r.value.lower() == role_name.strip().lower()), None
+    )
     if not canonical:
         return []
     rows = RolePermission.query.filter(
         RolePermission.role == canonical,
         RolePermission.granted.is_(True),
     ).all()
-    return [r.permission_key for r in rows]
+    return [r.permission_id for r in rows]
 
 
 class UserPermission(db.Model):
@@ -159,27 +174,33 @@ class UserPermission(db.Model):
     permission be explicitly turned on/off — the row is kept either way,
     only the flag flips — so 'revoked' is distinguishable from 'never
     granted'."""
+
     __tablename__ = "user_permissions"
-    user_id = db.Column(db.String(UUID_LEN), db.ForeignKey("users.id"), primary_key=True)
-    permission_key = db.Column(db.String(50), db.ForeignKey("permissions.key"), primary_key=True)
+    user_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("users.id"), primary_key=True
+    )
+    permission_id = db.Column(
+        db.INteger, db.ForeignKey("permissions.id"), primary_key=True
+    )
     granted = db.Column(db.Boolean, nullable=False, default=True)
 
     permission = db.relationship("Permission")
 
     def to_dict(self):
-        return {"permissionKey": self.permission_key, "granted": self.granted}
+        return {"permission_id": self.permission_id, "granted": self.granted}
 
 
 def get_user_permissions(user_id: str):
     """Replaces the old User.permissions @property — call this instead
     wherever a user's granted permission keys are needed."""
     rows = UserPermission.query.filter_by(user_id=user_id, granted=True).all()
-    return sorted(r.permission_key for r in rows)
+    return sorted(r.permission_id for r in rows)
 
 
 class Category(db.Model):
     """Product category — its own table with CRUD (see routes/categories.py)
     instead of a free-typed string on Product."""
+
     __tablename__ = "categories"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(100), nullable=False, unique=True)
@@ -210,10 +231,16 @@ class User(db.Model):
     email = db.Column(db.String(200), nullable=False, unique=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(ROLE_ENUM_TYPE, nullable=False)  # Admin | Manufacturer | Employee
-    manufacturer_id = db.Column(db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=True)
-    status = db.Column(db.String(20), nullable=False, default="Active")  # Active | Inactive
+    manufacturer_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=True
+    )
+    status = db.Column(
+        db.String(20), nullable=False, default="Active"
+    )  # Active | Inactive
 
-    grants = db.relationship("UserPermission", backref="user", cascade="all, delete-orphan", lazy="subquery")
+    grants = db.relationship(
+        "UserPermission", backref="user", cascade="all, delete-orphan", lazy="subquery"
+    )
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -231,12 +258,18 @@ class User(db.Model):
             if key not in keys:
                 db.session.delete(grant)
 
-        valid_keys = {p.key for p in Permission.query.filter(Permission.key.in_(keys)).all()} if keys else set()
+        valid_keys = (
+            {p.key for p in Permission.query.filter(Permission.key.in_(keys)).all()}
+            if keys
+            else set()
+        )
         for key in valid_keys:
             if key in existing:
                 existing[key].granted = True
             else:
-                db.session.add(UserPermission(user_id=self.id, permission_key=key, granted=True))
+                db.session.add(
+                    UserPermission(user_id=self.id, permission_key=key, granted=True)
+                )
 
     def set_permission(self, key, granted=True):
         """Toggles a single permission on/off without touching the rest
@@ -245,7 +278,9 @@ class User(db.Model):
         if existing:
             existing.granted = granted
         elif Permission.query.get(key):
-            db.session.add(UserPermission(user_id=self.id, permission_key=key, granted=granted))
+            db.session.add(
+                UserPermission(user_id=self.id, permission_key=key, granted=granted)
+            )
 
     def to_dict(self):
         return {
@@ -266,15 +301,22 @@ class Product(db.Model):
     """Core catalog data only — no batch-specific fields like a
     manufacturing date (that lives on Batch). Shelf life is owned
     directly by the product, not resolved from a manufacturer default."""
+
     __tablename__ = "products"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(200), nullable=False)
-    category_id = db.Column(db.String(UUID_LEN), db.ForeignKey("categories.id"), nullable=False)
-    manufacturer_id = db.Column(db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=False)
+    category_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("categories.id"), nullable=False
+    )
+    manufacturer_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=False
+    )
     description = db.Column(db.Text)
     shelf_life_months = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     batches = db.relationship("Batch", backref="product", lazy=True)
 
@@ -300,23 +342,39 @@ class Product(db.Model):
 class Batch(db.Model):
     __tablename__ = "batches"
     batch_no = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
-    product_id = db.Column(db.String(UUID_LEN), db.ForeignKey("products.id"), nullable=False)
-    manufacturer_id = db.Column(db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=False)
+    product_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("products.id"), nullable=False
+    )
+    manufacturer_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=False
+    )
     mfg_date = db.Column(db.Date, nullable=True)
     expiry_date = db.Column(db.Date, nullable=True)
     qty = db.Column(db.Integer, nullable=False, default=0)
     mrp = db.Column(db.Numeric(10, 2), nullable=True)
-    status = db.Column(BATCH_STATUS_ENUM_TYPE, nullable=False, default=BatchStatus.IN_PRODUCTION.value)
+    status = db.Column(
+        BATCH_STATUS_ENUM_TYPE, nullable=False, default=BatchStatus.IN_PRODUCTION.value
+    )
     # "batch" = one code covers the whole batch (exactly one Code row ever
     # exists for it); "unit" = one code per physical unit (up to `qty`
     # Code rows — tens of thousands for a large batch).
-    generation_level = db.Column(GENERATION_LEVEL_ENUM_TYPE, nullable=False, default=GenerationLevel.UNIT.value)
+    generation_level = db.Column(
+        GENERATION_LEVEL_ENUM_TYPE, nullable=False, default=GenerationLevel.UNIT.value
+    )
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    created_by = db.Column(db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=True)
+    created_by = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=True
+    )
 
-    codes = db.relationship("Code", backref="batch", lazy=True, cascade="all, delete-orphan")
-    recall = db.relationship("Recall", backref="batch", uselist=False, cascade="all, delete-orphan")
-    anomalies = db.relationship("Anomaly", backref="batch", lazy=True, cascade="all, delete-orphan")
+    codes = db.relationship(
+        "Code", backref="batch", lazy=True, cascade="all, delete-orphan"
+    )
+    recall = db.relationship(
+        "Recall", backref="batch", uselist=False, cascade="all, delete-orphan"
+    )
+    anomalies = db.relationship(
+        "Anomaly", backref="batch", lazy=True, cascade="all, delete-orphan"
+    )
 
     def is_expiring_soon(self):
         if self.status != "ACTIVE" or not self.expiry_date:
@@ -358,14 +416,21 @@ class Code(db.Model):
     `token` is intentionally NOT a UUID: it's the actual business code
     printed/encoded on the physical label, generated by
     Code.generate_token() rather than replaced with a raw UUID."""
+
     __tablename__ = "codes"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     token = db.Column(db.String(40), nullable=False, unique=True)
-    batch_no = db.Column(db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False)
-    status = db.Column(db.String(20), nullable=False, default="issued")  # issued | activated
+    batch_no = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False
+    )
+    status = db.Column(
+        db.String(20), nullable=False, default="issued"
+    )  # issued | activated
     scan_count = db.Column(db.Integer, nullable=False, default=0)
     activated_at = db.Column(db.DateTime, nullable=True)
-    activated_by = db.Column(db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=True)
+    activated_by = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=True
+    )
 
     @staticmethod
     def generate_token(batch_no: str, seq: int) -> str:
@@ -385,9 +450,16 @@ class Code(db.Model):
 class Recall(db.Model):
     __tablename__ = "recalls"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    batch_no = db.Column(db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False, unique=True)
+    batch_no = db.Column(
+        db.String(UUID_LEN),
+        db.ForeignKey("batches.batch_no"),
+        nullable=False,
+        unique=True,
+    )
     reason = db.Column(db.Text, nullable=False)
-    recalled_by = db.Column(db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=False)
+    recalled_by = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=False
+    )
     recalled_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -408,9 +480,13 @@ class Recall(db.Model):
 class Anomaly(db.Model):
     __tablename__ = "anomalies"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    batch_no = db.Column(db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False)
+    batch_no = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False
+    )
     text = db.Column(db.Text, nullable=False)
-    severity = db.Column(db.String(10), nullable=False, default="medium")  # low | medium | high
+    severity = db.Column(
+        db.String(10), nullable=False, default="medium"
+    )  # low | medium | high
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -426,14 +502,20 @@ class CsvExport(db.Model):
     """One row per generated label batch export — tracks whether the
     first (free) download has already been used, per the rule that a
     redownload after that needs Admin approval."""
+
     __tablename__ = "csv_exports"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    batch_no = db.Column(db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False)
+    batch_no = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False
+    )
     generated_at = db.Column(db.DateTime, default=datetime.utcnow)
     first_download_used = db.Column(db.Boolean, nullable=False, default=False)
 
-    batch = db.relationship("Batch", foreign_keys=[batch_no],
-                             primaryjoin="CsvExport.batch_no == Batch.batch_no")
+    batch = db.relationship(
+        "Batch",
+        foreign_keys=[batch_no],
+        primaryjoin="CsvExport.batch_no == Batch.batch_no",
+    )
 
     def to_dict(self):
         b = self.batch
@@ -452,10 +534,18 @@ class CsvExport(db.Model):
 class RedownloadRequest(db.Model):
     __tablename__ = "redownload_requests"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
-    requested_by = db.Column(db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=False)
-    batch_no = db.Column(db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False)
+    requested_by = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=False
+    )
+    batch_no = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False
+    )
     reason = db.Column(db.Text, nullable=False)
-    status = db.Column(REDOWNLOAD_STATUS_ENUM_TYPE, nullable=False, default=RedownloadStatus.PENDING.value)
+    status = db.Column(
+        REDOWNLOAD_STATUS_ENUM_TYPE,
+        nullable=False,
+        default=RedownloadStatus.PENDING.value,
+    )
     review_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -477,16 +567,25 @@ class SystemSetup(db.Model):
     manufacturer_id — one row per manufacturer, not a global singleton).
     default_code_type and default_generation_level are encrypted at
     rest via EncryptedString."""
+
     __tablename__ = "system_setup"
-    manufacturer_id = db.Column(db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), primary_key=True)
-    default_code_type = db.Column(EncryptedString(255), nullable=False, default="Both")  # QR Code | Barcode | Both
-    default_generation_level = db.Column(EncryptedString(255), nullable=False, default="Unit-level")
+    manufacturer_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), primary_key=True
+    )
+    default_code_type = db.Column(
+        EncryptedString(255), nullable=False, default="Both"
+    )  # QR Code | Barcode | Both
+    default_generation_level = db.Column(
+        EncryptedString(255), nullable=False, default="Unit-level"
+    )
     company_name = db.Column(db.String(200))
     gstin = db.Column(db.String(40))
     contact_email = db.Column(db.String(200))
     contact_phone = db.Column(db.String(40))
 
-    manufacturer = db.relationship("Manufacturer", backref=db.backref("setup", uselist=False))
+    manufacturer = db.relationship(
+        "Manufacturer", backref=db.backref("setup", uselist=False)
+    )
 
     def to_dict(self):
         return {

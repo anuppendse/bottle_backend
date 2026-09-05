@@ -17,7 +17,7 @@ def _get_or_create(manufacturer_id):
 
 
 @setup_bp.get("/manufacturers")
-@require_permission("setup")
+@require_permission("")
 def list_manufacturers():
     """Lets the Setup screen offer a manufacturer picker, since defaults
     and company profile are now stored per manufacturer rather than as
