@@ -116,12 +116,12 @@ class Permission(db.Model):
 
     __tablename__ = "permissions"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    key = db.Column(db.String(50), unique=True)
+    key = db.Column(db.String(50), unique=True, nullable=False)
     label = db.Column(db.String(100), nullable=True)
     parent_key = db.Column(
         db.String(50), db.ForeignKey("permissions.key"), nullable=True
     )
-    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    sort_order = db.Column(db.Integer, nullable=True, default=0)
     children = db.relationship(
         "Permission", backref=db.backref("parent", remote_side=[key])
     )
@@ -145,7 +145,7 @@ class RolePermission(db.Model):
     granted = db.Column(db.Boolean, nullable=False, default=True)
 
     __table_args__ = (
-        db.UniqueConstraint("role", "permission_key", name="uq_role_permission"),
+        db.UniqueConstraint("role", "permission_id", name="uq_role_permission"),
     )
 
 
@@ -180,7 +180,7 @@ class UserPermission(db.Model):
         db.String(UUID_LEN), db.ForeignKey("users.id"), primary_key=True
     )
     permission_id = db.Column(
-        db.INteger, db.ForeignKey("permissions.id"), primary_key=True
+        db.Integer, db.ForeignKey("permissions.id"), primary_key=True
     )
     granted = db.Column(db.Boolean, nullable=False, default=True)
 
