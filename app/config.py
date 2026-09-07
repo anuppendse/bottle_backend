@@ -16,12 +16,14 @@ class Config:
     FIELD_ENCRYPTION_KEY = "dev-field-encryption-key-change-me"
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=8)
     
+    
     # ── Database configuration ─────────────────────────────────────────────
     DB_USER = "postgres"
     DB_PASSWORD = "root"
     DB_HOST = "localhost"
     DB_PORT = "5432"
     DB_NAME = "bottle_mgmt"
+    SCAN_BASE_URL = "http://localhost:5000"
 
     SQLALCHEMY_DATABASE_URI = (
         f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"

@@ -8,7 +8,7 @@ from app.decorators import require_permission, current_user
 
 batches_bp = Blueprint("batches", __name__)
 
-_SORT_ORDER = {"IN PRODUCTION": 0, "ACTIVE": 1, "EXPIRED": 2, "RECALLED": 3}
+_SORT_ORDER = {"ACTIVE": 0, "RECALLED": 1, "EXPIRED": 2}
 
 
 def _scope_query(q, user):
@@ -24,7 +24,6 @@ def list_batches():
     rows = _scope_query(Batch.query, user).all()
     rows.sort(key=lambda b: (_SORT_ORDER.get(b.status, 9), b.batch_no))
     return jsonify([b.to_dict() for b in rows])
-
 
 @batches_bp.get("/<batch_or_product_id>")
 @require_permission("batches")

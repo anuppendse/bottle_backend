@@ -1,3 +1,4 @@
+import os
 from flask import Flask, jsonify
 
 from app.config import Config
@@ -25,6 +26,7 @@ def create_app(config_class=Config):
     from app.routes.setup import setup_bp
     from app.routes.verify import verify_bp
     from app.routes.permissions import permissions_bp
+    from app.routes.manufacturer import manufacturer_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
@@ -39,7 +41,7 @@ def create_app(config_class=Config):
     app.register_blueprint(setup_bp, url_prefix="/api/setup")
     app.register_blueprint(verify_bp, url_prefix="/api/verify")
     app.register_blueprint(permissions_bp, url_prefix="/api/permissions")
-
+    app.register_blueprint(manufacturer_bp, url_prefix="/api/manufacturers")
     @app.errorhandler(404)
     def not_found(e):
         return jsonify({"error": "Not found."}), 404

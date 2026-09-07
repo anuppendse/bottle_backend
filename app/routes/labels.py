@@ -1,13 +1,18 @@
 import csv
 import io
+import os
+import json
 from datetime import date
 
-from flask import Blueprint, request, jsonify, Response
+
+from flask import Blueprint, request, jsonify, Response, current_app, send_file
 
 from app.extensions import db
-from app.models import Batch, Product, Code, CsvExport, GENERATION_LEVELS, normalize_role
+from app.helpers import mint_code
+from app.models import Batch, Product, Code, CsvExport, GENERATION_LEVELS, CODE_TYPES, normalize_role
 from app.decorators import require_permission, current_user
 from app.utils import add_months
+
 
 labels_bp = Blueprint("labels", __name__)
 
@@ -30,7 +35,9 @@ def generate_labels():
     product_id = data.get("productId")
     mrp = data.get("mrp")
     count = data.get("count")
+    quantity = data.get("quantity")
     generation_level = (data.get("generationLevel") or "unit").strip().lower()
+    code_type = (data.get("codeType") or "QR").strip()
 
     if not product_name and not product_id:
         return jsonify({"error": "Enter a product name to enable generation."}), 400
@@ -38,6 +45,8 @@ def generate_labels():
         return jsonify({"error": "Enter an MRP and a positive number of units to enable generation."}), 400
     if generation_level not in GENERATION_LEVELS:
         return jsonify({"error": f"generationLevel must be one of: {', '.join(GENERATION_LEVELS)}."}), 400
+    if code_type not in CODE_TYPES:
+        return jsonify({"error": f"codeType must be one of: {', '.join(CODE_TYPES)}."}), 400
 
     product = None
     if product_id:
@@ -62,8 +71,7 @@ def generate_labels():
         batch_kwargs = dict(
             product_id=product.id, manufacturer_id=product.manufacturer_id,
             mfg_date=mfg_date, expiry_date=expiry_date, qty=count, mrp=mrp,
-            status="ACTIVE", generation_level=generation_level, created_by=user.id,
-        )
+            status="IN PRODUCTION", generation_level=generation_level, created_by=user.id,        )
         if batch_no:
             batch_kwargs["batch_no"] = batch_no
         batch = Batch(**batch_kwargs)
@@ -73,21 +81,17 @@ def generate_labels():
 
     db.session.flush()
 
+    
+
     tokens = []
     if batch.generation_level == "batch":
-        # Only one Code row ever exists for a batch-level batch.
         if not batch.codes:
-            token = Code.generate_token(batch.batch_no, 1)
-            db.session.add(Code(token=token, batch_no=batch.batch_no))
-            tokens = [token]
-        codes_generated = 1
+            tokens = mint_code(batch, code_type)
+        codes_generated = len(tokens)
     else:
-        existing = len(batch.codes)
-        for i in range(1, count + 1):
-            token = Code.generate_token(batch.batch_no, existing + i)
-            db.session.add(Code(token=token, batch_no=batch.batch_no))
-            tokens.append(token)
-        codes_generated = count
+        for i in range(count):
+            tokens.extend(mint_code(batch, code_type))
+        codes_generated = len(tokens)
 
     export = CsvExport(batch_no=batch.batch_no)
     db.session.add(export)
@@ -113,11 +117,26 @@ def download_batch_csv(batch_no):
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["token", "batch", "product", "status", "activated_at"])
+    writer.writerow(["batchNumber", "token", "payload"])
     for c in batch.codes:
-        writer.writerow([c.token, c.batch_no, batch.product.name, c.status,
-                          c.activated_at.isoformat() if c.activated_at else ""])
+        writer.writerow([c.batch_no, c.token, json.dumps(c.payload)])
     return Response(
         buf.getvalue(), mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={batch_no}-codes.csv"},
     )
+
+@labels_bp.get("/codes/<token>/image")
+@require_permission("labelGeneration")
+def download_code_image(token):
+    user = current_user()
+    code = Code.query.filter_by(token=token).first()
+    if not code:
+        return jsonify({"error": "Code not found."}), 404
+    if normalize_role(user.role) == "manufacturer" and code.batch.manufacturer_id != user.manufacturer_id:
+        return jsonify({"error": "403 — access denied."}), 403
+
+    fmt = request.args.get("type", "qr")
+    path = (code.image_paths or {}).get(fmt)
+    if not path or not os.path.exists(path):
+        return jsonify({"error": f"No {fmt} image available for this code."}), 404
+    return send_file(path, mimetype="image/png")
