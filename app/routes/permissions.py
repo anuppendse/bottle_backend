@@ -21,7 +21,7 @@ def get_permission_tree():
     tree = []
     for p in parents:
         children = [c.to_dict() for c in rows if c.parent_key == p.key]
-        node = {"key": p.key, "label": p.label, "section": p.section}
+        node = {"key": p.key, "label": p.label}
         if children:
             node["children"] = children
         tree.append(node)
@@ -48,11 +48,14 @@ def set_role_defaults():
         return jsonify({"error": f"role must be one of: {', '.join(ROLES)}."}), 400
 
     keys = data.get("permissions") or []
-    valid_keys = {p.key for p in Permission.query.filter(Permission.key.in_(keys), Permission.key != SETUP_KEY).all()}
+
+    valid_perms = Permission.query.filter(
+        Permission.key.in_(keys), Permission.key != SETUP_KEY
+    ).all()
 
     RolePermission.query.filter_by(role=role).delete()
-    for key in valid_keys:
-        db.session.add(RolePermission(role=role, permission_key=key, granted=True))
+    for p in valid_perms:
+        db.session.add(RolePermission(role=role, permission_id=p.id, granted=True))
     db.session.commit()
 
-    return jsonify({"role": role, "permissions": sorted(valid_keys)})
+    return jsonify({"role": role, "permissions": sorted(p.key for p in valid_perms)})
