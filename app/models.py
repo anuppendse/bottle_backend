@@ -1,20 +1,22 @@
 import enum
 import uuid
 from datetime import datetime, date
+import hmac
+import hashlib
+from flask import current_app
 
 try:
     from enum import StrEnum
 except ImportError:  # Python < 3.11 fallback — StrEnum was added in 3.11
-
     class StrEnum(str, enum.Enum):
         def __str__(self):
             return str(self.value)
-
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.extensions import db
 from app.crypto import EncryptedString
+
 
 UUID_LEN = 36  # length of str(uuid.uuid4())
 
@@ -65,8 +67,8 @@ BATCH_STATUS_ENUM_TYPE = _enum_column_type(BatchStatus, "batch_status_enum")
 
 
 class GenerationLevel(StrEnum):
-    BATCH = "batch"
-    UNIT = "unit"
+    BATCH = "BATCH"
+    UNIT = "UNIT"
 
 
 GENERATION_LEVELS = [g.value for g in GenerationLevel]
@@ -84,6 +86,18 @@ REDOWNLOAD_STATUS_ENUM_TYPE = _enum_column_type(
     RedownloadStatus, "redownload_status_enum"
 )
 
+class CodeType(StrEnum):
+    QR = "QR"
+    BARCODE = "BARCODE"
+    BOTH = "BOTH"
+
+class RecordStatus(enum.Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+CODE_TYPES = [c.value for c in CodeType]
+CODE_TYPE_ENUM_TYPE = _enum_column_type(CodeType, "code_type_enum")
 
 def normalize_role(role_text: str) -> str:
     """Maps a `role` string (or Role enum member — StrEnum members are
@@ -113,7 +127,6 @@ def normalize_role(role_text: str) -> str:
 class Permission(db.Model):
     """A node in the permissions tree (e.g. 'products' or its child
     'products.add')."""
-
     __tablename__ = "permissions"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     key = db.Column(db.String(50), unique=True, nullable=False)
@@ -215,13 +228,24 @@ class Manufacturer(db.Model):
     __tablename__ = "manufacturers"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(200), nullable=False, unique=True)
+    code_type = db.Column(db.String(20), nullable=False, default=CodeType.QR.value)  # QR | Barcode | Both — plain, not encrypted
+    generation_level = db.Column(db.String(20), nullable=False, default=GenerationLevel.UNIT.value)  # unit | batch — plain, not encrypted
 
     products = db.relationship("Product", backref="manufacturer", lazy=True)
     users = db.relationship("User", backref="manufacturer", lazy=True)
+    status = db.Column(
+            enum(RecordStatus, name="manufacturer_enum"),
+            nullable=False,
+            default=RecordStatus.ACTIVE,
+        )
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name}
-
+        return {
+            "id": self.id,
+            "name": self.name,
+            "codeType": self.code_type,
+            "generationLevel": self.generation_level,
+        }
 
 class User(db.Model):
     __tablename__ = "users"
@@ -301,7 +325,6 @@ class Product(db.Model):
     """Core catalog data only — no batch-specific fields like a
     manufacturing date (that lives on Batch). Shelf life is owned
     directly by the product, not resolved from a manufacturer default."""
-
     __tablename__ = "products"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(200), nullable=False)
@@ -437,6 +460,25 @@ class Code(db.Model):
         salt = gen_uuid()[:4].upper()
         return f"TKN-{salt}-{str(seq).zfill(4)}"
 
+    def build_payload(self) -> dict:
+        return {
+            "code": self.token,
+            "batchNumber": self.batch_no,
+            "type": self.code_type,
+            "encodedValue": f"{current_app.config['SCAN_BASE_URL']}/scan/{self.token}",
+        }
+
+    @staticmethod
+    def verify_payload(payload: dict):
+        """Looks up the Code row for a scanned payload's token. No
+        signature/HMAC involved — the label manufacturer generates the
+        physical QR/barcode image themselves from this payload, so
+        verification here is purely a DB lookup by token."""
+        token = payload.get("code")
+        if not token:
+            return None
+        return Code.query.filter_by(token=token).first()
+
     def to_dict(self):
         return {
             "token": self.token,
@@ -444,6 +486,9 @@ class Code(db.Model):
             "status": self.status,
             "scanCount": self.scan_count,
             "activatedAt": self.activated_at.isoformat() if self.activated_at else None,
+            "codeType": self.code_type,
+            "hasQr": bool(self.image_paths and self.image_paths.get("qr")),
+            "hasBarcode": bool(self.image_paths and self.image_paths.get("barcode")),
         }
 
 
