@@ -101,12 +101,12 @@ def normalize_role(role_text: str) -> str:
     the internal system role used for data scoping (which manufacturer's
     data a user sees) and for the Admin-only Setup check. This is a
     plain function, not a model property — call it as
-    normalize_role(user.role) wherever the old user.system_role was used.""" 
+    normalize_role(user.role) wherever the old user.system_role was used."""
     t = role_text.value.strip().lower()
     if t == Role.ADMIN.value.lower():
-        return t 
+        return t
     if t == Role.MANUFACTURER.value.lower():
-        return t 
+        return t
     return Role.EMPLOYEE.value.strip().lower()
 
 
@@ -214,11 +214,16 @@ class Category(db.Model):
     __tablename__ = "categories"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(100), nullable=False, unique=True)
+    status = db.Column(
+        SqlEnum(RecordStatus, name="category_status_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
 
     products = db.relationship("Product", backref="category", lazy=True)
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name}
+        return {"id": self.id, "name": self.name, "status": self.status.value}
 
 
 class Manufacturer(db.Model):
@@ -231,10 +236,10 @@ class Manufacturer(db.Model):
         default=RecordStatus.ACTIVE,
     )
     generation_level = db.Column(
-            SqlEnum(GenerationLevel, name="manufacturer_generation_level_enum"),
-            nullable=False,
-            default=RecordStatus.ACTIVE,
-        )
+        SqlEnum(GenerationLevel, name="manufacturer_generation_level_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
     products = db.relationship("Product", backref="manufacturer", lazy=True)
     users = db.relationship("User", backref="manufacturer", lazy=True)
     status = db.Column(
