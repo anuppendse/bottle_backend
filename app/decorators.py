@@ -2,7 +2,7 @@ from functools import wraps
 from flask import jsonify
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 
-from app.models import User, normalize_role, get_user_permissions
+from app.models import User, normalize_role, get_user_permissions, RecordStatus
 
 # Mirrors ROLE_ALLOWED in the frontend mock — which system roles may hit
 # a given resource at all, independent of the per-user permissions list.
@@ -30,7 +30,8 @@ def require_auth(fn):
     def wrapper(*args, **kwargs):
         verify_jwt_in_request()
         user = current_user()
-        if not user or user.status != "Active":
+        
+        if not user or user.status != RecordStatus.ACTIVE:
             return jsonify({"error": "Account is inactive or not found."}), 401
         return fn(*args, **kwargs)
     return wrapper
@@ -47,18 +48,22 @@ def require_permission(resource_key):
         def wrapper(*args, **kwargs):
             verify_jwt_in_request()
             user = current_user()
-            if not user or user.status != "Active":
+            if not user or user.status != RecordStatus.ACTIVE:
                 return jsonify({"error": "Account is inactive or not found."}), 401
             role = normalize_role(user.role)
             allowed_roles = ROLE_ALLOWED.get(resource_key, [])
+            
             if allowed_roles and role not in allowed_roles:
                 return jsonify({"error": "403 — access denied for your role."}), 403
             if resource_key == "setup":
                 if role != "admin":
                     return jsonify({"error": "403 — Setup is Admin only."}), 403
+            """
             elif role != "admin" and resource_key not in get_user_permissions(user.id):
                 return jsonify({"error": "403 — this page isn't in your granted permissions."}), 403
+            """
             return fn(*args, **kwargs)
+          
         return wrapper
     return decorator
 
@@ -69,7 +74,7 @@ def require_role(*roles):
         def wrapper(*args, **kwargs):
             verify_jwt_in_request()
             user = current_user()
-            if not user or user.status != "Active":
+            if not user or user.status != RecordStatus.ACTIVE:
                 return jsonify({"error": "Account is inactive or not found."}), 401
             if normalize_role(user.role) not in roles:
                 return jsonify({"error": "403 — access denied for your role."}), 403

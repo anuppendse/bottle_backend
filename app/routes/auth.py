@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token
 
-from app.models import User, db
+from app.models import User, db, RecordStatus
 from app.decorators import require_auth, current_user
+from sqlalchemy import or_
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -10,19 +11,37 @@ auth_bp = Blueprint("auth", __name__)
 @auth_bp.post("/login")
 def login():
     data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+    # Accept either key from the frontend, and trim/lowercase it
+    email = data.get("email")
+    password = data.get("password")
+    
+    print(data)
 
     if not email or not password:
-        return jsonify({"error": "Enter your email and password to continue."}), 400
+        return (
+            jsonify(
+                {"error": "Enter your  email and password to continue."}
+            ),
+            400,
+        )
 
-    user = User.query.filter(User.email.ilike(email)).first()
+    if email:
+        email = email.strip().lower()
+
+    conditions = []
+    if email:
+        conditions.append(User.email.ilike(email))
+        conditions.append(User.username.ilike(email))
+
+    user = User.query.filter(
+        or_(*conditions),
+        User.status == RecordStatus.ACTIVE,
+    ).first()
+
     user.set_password(password)
     db.session.commit()
     if not user or not user.check_password(password):
-        return jsonify({"error": "Invalid email or password."}), 401
-    if user.status == "Inactive":
-        return jsonify({"error": "This account is inactive. Contact your Admin."}), 403
+        return jsonify({"error": "Invalid username/email or password."}), 401
 
     token = create_access_token(identity=user.id)
     return jsonify({"accessToken": token, "user": user.to_dict()})

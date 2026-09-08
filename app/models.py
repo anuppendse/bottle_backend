@@ -11,7 +11,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from app.extensions import db
 from app.crypto import EncryptedString
 
-
 UUID_LEN = 36  # length of str(uuid.uuid4())
 
 
@@ -38,9 +37,9 @@ def _enum_column_type(enum_cls, name):
 # Admin/Manufacturer accounts, same as any other page in the tree below.
 # ------------------------------------------------------------------
 class Role(enum.Enum):
-    ADMIN = "Admin"
-    MANUFACTURER = "Manufacturer"
-    EMPLOYEE = "Employee"
+    ADMIN = "ADMIN"
+    MANUFACTURER = "MANUFACTURER"
+    EMPLOYEE = "EMPLOYEE"
 
 
 ROLES = [
@@ -80,10 +79,12 @@ REDOWNLOAD_STATUS_ENUM_TYPE = _enum_column_type(
     RedownloadStatus, "redownload_status_enum"
 )
 
+
 class CodeType(enum.Enum):
     QR = "QR"
     BARCODE = "BARCODE"
     BOTH = "BOTH"
+
 
 class RecordStatus(enum.Enum):
     ACTIVE = "ACTIVE"
@@ -93,19 +94,20 @@ class RecordStatus(enum.Enum):
 CODE_TYPES = [c.value for c in CodeType]
 CODE_TYPE_ENUM_TYPE = _enum_column_type(CodeType, "code_type_enum")
 
+
 def normalize_role(role_text: str) -> str:
     """Maps a `role` string (or Role enum member — StrEnum members are
     plain strings, so .strip()/.lower() work the same either way) to
     the internal system role used for data scoping (which manufacturer's
     data a user sees) and for the Admin-only Setup check. This is a
     plain function, not a model property — call it as
-    normalize_role(user.role) wherever the old user.system_role was used."""
-    t = (role_text or "").strip().lower()
-    if t == "admin":
-        return "admin"
-    if t == "manufacturer":
-        return "manufacturer"
-    return "employee"
+    normalize_role(user.role) wherever the old user.system_role was used.""" 
+    t = role_text.value.strip().lower()
+    if t == Role.ADMIN.value.lower():
+        return t 
+    if t == Role.MANUFACTURER.value.lower():
+        return t 
+    return Role.EMPLOYEE.value.strip().lower()
 
 
 # ------------------------------------------------------------------
@@ -121,6 +123,7 @@ def normalize_role(role_text: str) -> str:
 class Permission(db.Model):
     """A node in the permissions tree (e.g. 'products' or its child
     'products.add')."""
+
     __tablename__ = "permissions"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     key = db.Column(db.String(50), unique=True, nullable=False)
@@ -222,24 +225,32 @@ class Manufacturer(db.Model):
     __tablename__ = "manufacturers"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(200), nullable=False, unique=True)
-    code_type = db.Column(db.String(20), nullable=False, default=CodeType.QR.value)  # QR | Barcode | Both — plain, not encrypted
-    generation_level = db.Column(db.String(20), nullable=False, default=GenerationLevel.UNIT.value)  # unit | batch — plain, not encrypted
-
-    products = db.relationship("Product", backref="manufacturer", lazy=True)
-    users = db.relationship("User", backref="manufacturer", lazy=True)
-    status = db.Column(
-            SqlEnum(RecordStatus, name="manufacturer_enum"),
+    code_type = db.Column(
+        SqlEnum(CodeType, name="manufacturer_code_type_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
+    generation_level = db.Column(
+            SqlEnum(GenerationLevel, name="manufacturer_generation_level_enum"),
             nullable=False,
             default=RecordStatus.ACTIVE,
         )
+    products = db.relationship("Product", backref="manufacturer", lazy=True)
+    users = db.relationship("User", backref="manufacturer", lazy=True)
+    status = db.Column(
+        SqlEnum(RecordStatus, name="manufacturer_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
 
     def to_dict(self):
         return {
             "id": self.id,
             "name": self.name,
-            "codeType": self.code_type,
-            "generationLevel": self.generation_level,
+            "codeType": self.code_type.value,
+            "generationLevel": self.generation_level.value,
         }
+
 
 class User(db.Model):
     __tablename__ = "users"
@@ -248,14 +259,15 @@ class User(db.Model):
     username = db.Column(db.String(50), nullable=False, unique=True)
     email = db.Column(db.String(200), nullable=False, unique=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(ROLE_ENUM_TYPE, nullable=False)  # Admin | Manufacturer | Employee
+    role = db.Column(SqlEnum(Role, name="user_role_enum"), nullable=False)
     manufacturer_id = db.Column(
         db.String(UUID_LEN), db.ForeignKey("manufacturers.id"), nullable=True
     )
     status = db.Column(
-        db.String(20), nullable=False, default="Active"
-    )  # Active | Inactive
-
+        SqlEnum(RecordStatus, name="user_status_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
     grants = db.relationship(
         "UserPermission", backref="user", cascade="all, delete-orphan", lazy="subquery"
     )
@@ -306,11 +318,13 @@ class User(db.Model):
             "name": self.name,
             "username": self.username,
             "email": self.email,
-            "role": self.role,
-            "systemRole": normalize_role(self.role),
+            "role": self.role.value,
+            "systemRole": self.role.value,
             "manufacturer": self.manufacturer.name if self.manufacturer else "—",
-            "manufacturerId": self.manufacturer_id,
-            "status": self.status,
+            "manufacturerId": (
+                self.manufacturer_id if self.manufacturer_id is not None else None
+            ),
+            "status": self.status.value,
             "permissions": get_user_permissions(self.id),
         }
 
@@ -319,6 +333,7 @@ class Product(db.Model):
     """Core catalog data only — no batch-specific fields like a
     manufacturing date (that lives on Batch). Shelf life is owned
     directly by the product, not resolved from a manufacturer default."""
+
     __tablename__ = "products"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(200), nullable=False)
