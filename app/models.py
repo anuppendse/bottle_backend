@@ -1,16 +1,10 @@
 import enum
+from sqlalchemy import Enum as SqlEnum
 import uuid
 from datetime import datetime, date
 import hmac
 import hashlib
 from flask import current_app
-
-try:
-    from enum import StrEnum
-except ImportError:  # Python < 3.11 fallback — StrEnum was added in 3.11
-    class StrEnum(str, enum.Enum):
-        def __str__(self):
-            return str(self.value)
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -43,7 +37,7 @@ def _enum_column_type(enum_cls, name):
 # is still reachable — it's just an assignable permission on
 # Admin/Manufacturer accounts, same as any other page in the tree below.
 # ------------------------------------------------------------------
-class Role(StrEnum):
+class Role(enum.Enum):
     ADMIN = "Admin"
     MANUFACTURER = "Manufacturer"
     EMPLOYEE = "Employee"
@@ -55,7 +49,7 @@ ROLES = [
 ROLE_ENUM_TYPE = _enum_column_type(Role, "role_enum")
 
 
-class BatchStatus(StrEnum):
+class BatchStatus(enum.Enum):
     IN_PRODUCTION = "IN PRODUCTION"
     ACTIVE = "ACTIVE"
     EXPIRED = "EXPIRED"
@@ -66,7 +60,7 @@ BATCH_STATUSES = [s.value for s in BatchStatus]
 BATCH_STATUS_ENUM_TYPE = _enum_column_type(BatchStatus, "batch_status_enum")
 
 
-class GenerationLevel(StrEnum):
+class GenerationLevel(enum.Enum):
     BATCH = "BATCH"
     UNIT = "UNIT"
 
@@ -75,7 +69,7 @@ GENERATION_LEVELS = [g.value for g in GenerationLevel]
 GENERATION_LEVEL_ENUM_TYPE = _enum_column_type(GenerationLevel, "generation_level_enum")
 
 
-class RedownloadStatus(StrEnum):
+class RedownloadStatus(enum.Enum):
     PENDING = "Pending"
     APPROVED = "Approved"
     REJECTED = "Rejected"
@@ -86,7 +80,7 @@ REDOWNLOAD_STATUS_ENUM_TYPE = _enum_column_type(
     RedownloadStatus, "redownload_status_enum"
 )
 
-class CodeType(StrEnum):
+class CodeType(enum.Enum):
     QR = "QR"
     BARCODE = "BARCODE"
     BOTH = "BOTH"
@@ -234,7 +228,7 @@ class Manufacturer(db.Model):
     products = db.relationship("Product", backref="manufacturer", lazy=True)
     users = db.relationship("User", backref="manufacturer", lazy=True)
     status = db.Column(
-            enum(RecordStatus, name="manufacturer_enum"),
+            SqlEnum(RecordStatus, name="manufacturer_enum"),
             nullable=False,
             default=RecordStatus.ACTIVE,
         )
