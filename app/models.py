@@ -136,14 +136,22 @@ class Permission(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     key = db.Column(db.String(50), unique=True, nullable=False)
     label = db.Column(db.String(100), nullable=True)
-    parent_key = db.Column(
-        db.String(50), db.ForeignKey("permissions.key"), nullable=True
-    )
+    parent_id = db.Column(db.Integer, db.ForeignKey("permissions.id"), nullable=True)
     sort_order = db.Column(db.Integer, nullable=True, default=0)
     children = db.relationship(
-        "Permission", backref=db.backref("parent", remote_side=[key])
+        "Permission",
+        backref=db.backref("parent", remote_side=[id]),
+        cascade="all, delete-orphan",
     )
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "key": self.key,
+            "label": self.label,
+            "parent_id": self.parent_id,
+            "sort_order": self.sort_order,
+        }
 
 
 class RolePermission(db.Model):
@@ -154,7 +162,7 @@ class RolePermission(db.Model):
 
     __tablename__ = "role_permissions"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    role = db.Column(ROLE_ENUM_TYPE, nullable=False)
+    role = db.Column(SqlEnum(Role, name="user_role_enum"), nullable=False)
     permission_id = db.Column(
         db.Integer, db.ForeignKey("permissions.id"), nullable=False
     )
@@ -163,6 +171,9 @@ class RolePermission(db.Model):
     __table_args__ = (
         db.UniqueConstraint("role", "permission_id", name="uq_role_permission"),
     )
+
+    def to_dict(self):
+        return {"id": self.id, "role": self.role.value, "granted": self.granted}
 
 
 def default_permissions_for_role(role_name: str):

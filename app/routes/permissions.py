@@ -11,22 +11,57 @@ permissions_bp = Blueprint("permissions", __name__)
 
 
 @permissions_bp.get("")
-@require_permission("users")
 def get_permission_tree():
-    """Returns the assignable permission tree (with parent/child nesting)
-    plus the always-locked entries (currently just 'setup'), read live
-    from the Permission table — not a hardcoded list."""
-    rows = Permission.query.order_by(Permission.sort_order, Permission.key).all()
-    parents = [p for p in rows if not p.parent_key and p.key != SETUP_KEY]
-    tree = []
-    for p in parents:
-        children = [c.to_dict() for c in rows if c.parent_key == p.key]
-        node = {"key": p.key, "label": p.label}
-        if children:
-            node["children"] = children
-        tree.append(node)
-    locked = [p.to_dict() for p in rows if p.key == SETUP_KEY]
-    return jsonify({"tree": tree, "locked": locked, "roles": ROLES})
+    parent_rows = (
+        Permission.query.filter(Permission.parent_id.is_(None))
+        .order_by(Permission.sort_order)
+        .all()
+    )
+
+    all_permission_dict = {}
+    for parent_row in parent_rows:
+        parent_role_nodes = RolePermission.query.filter(
+            RolePermission.permission_id == parent_row.to_dict().get("id")
+        ).all()
+
+        for parent_role_node in parent_role_nodes:
+            parent_node_dict = {}
+            parent_node_dict["key"] = parent_row.key
+            parent_node_dict["label"] = parent_row.label
+            parent_node_dict["parent_id"] = parent_row.parent_id
+            parent_node_dict["granted"] = parent_role_node.granted
+            if parent_role_node.role.value in all_permission_dict:
+                all_permission_dict.get(parent_role_node.role.value).append(
+                    parent_node_dict
+                )
+            else:
+                node_list = []
+                node_list.append(parent_node_dict)
+                all_permission_dict[parent_role_node.role.value] = node_list
+
+        children = Permission.query.filter(
+            Permission.parent_id == parent_row.to_dict().get("id")
+        ).all()
+        for child_row in children:
+            child_role_nodes = RolePermission.query.filter(
+                RolePermission.permission_id == child_row.to_dict().get("id")
+            ).all()
+
+            for child_role_node in child_role_nodes:
+                child_node_dict = {}
+                child_node_dict["key"] = child_row.key
+                child_node_dict["label"] = child_row.label
+                child_node_dict["parent_id"] = child_row.parent_id
+                child_node_dict["granted"] = child_role_node.granted
+                if child_role_node.role.value in all_permission_dict:
+                    all_permission_dict.get(child_role_node.role.value).append(
+                        child_node_dict
+                    )
+                else:
+                    node_list = []
+                    node_list.append(child_node_dict)
+                    all_permission_dict[child_role_node.role.value] = node_list
+    return jsonify(all_permission_dict), 200
 
 
 @permissions_bp.get("/role-defaults")
