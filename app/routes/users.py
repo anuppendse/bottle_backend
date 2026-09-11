@@ -29,13 +29,27 @@ def _canonical_role(role_text):
     return next((r for r in ROLES if r.lower() == t), None)
 
 
+
+
 @users_bp.get("")
 @require_permission("users")
 def list_users():
     user = current_user()
-    rows = _scope_query(User.query, user).all()
-    return jsonify([u.to_dict() for u in rows])
+    role = normalize_role(user.role)
 
+    if role == Role.ADMIN.value.lower():
+        rows = User.query.filter(
+            User.role.in_([Role.MANUFACTURER.value, Role.EMPLOYEE.value])
+        ).all()
+    elif role == Role.MANUFACTURER.value.lower():
+        rows = User.query.filter_by(
+            manufacturer_id=user.manufacturer_id,
+            role=Role.EMPLOYEE.value,
+        ).all()
+    else:
+        rows = User.query.all()
+
+    return jsonify([u.to_dict() for u in rows])
 
 @users_bp.post("")
 @require_permission("users")
