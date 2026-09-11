@@ -14,6 +14,7 @@ def create_app(config_class=Config):
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGIN"]}})
 
     from app.routes.auth import auth_bp
+    from app.routes.scan import scan_bp
     from app.routes.dashboard import dashboard_bp
     from app.routes.products import products_bp
     from app.routes.categories import categories_bp
@@ -26,7 +27,8 @@ def create_app(config_class=Config):
     from app.routes.setup import setup_bp
     from app.routes.verify import verify_bp
     from app.routes.permissions import permissions_bp
-    from app.routes.manufacturer import manufacturer_bp
+    from app.routes.manufacturer import manufacturers_bp
+    
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
@@ -41,7 +43,8 @@ def create_app(config_class=Config):
     app.register_blueprint(setup_bp, url_prefix="/api/setup")
     app.register_blueprint(verify_bp, url_prefix="/api/verify")
     app.register_blueprint(permissions_bp, url_prefix="/api/permissions")
-    app.register_blueprint(manufacturer_bp, url_prefix="/api/manufacturers")
+    app.register_blueprint(manufacturers_bp, url_prefix="/api/manufacturers")
+    app.register_blueprint(scan_bp, url_prefix="/scan")
     @app.errorhandler(404)
     def not_found(e):
         return jsonify({"error": "Not found."}), 404

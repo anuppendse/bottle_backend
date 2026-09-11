@@ -36,8 +36,8 @@ def generate_labels():
     mrp = data.get("mrp")
     count = data.get("count")
     quantity = data.get("quantity")
-    generation_level = (data.get("generationLevel") or "unit").strip().lower()
-    code_type = (data.get("codeType") or "QR").strip()
+    generation_level = (data.get("generationLevel") or "UNIT").strip().upper()
+    code_type = (data.get("codeType") or "QR").strip().upper()
 
     if not product_name and not product_id:
         return jsonify({"error": "Enter a product name to enable generation."}), 400
