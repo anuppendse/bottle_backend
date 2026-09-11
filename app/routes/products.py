@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models import Product, Manufacturer, Category, normalize_role
+from app.models import Product, Manufacturer, Category, normalize_role, RecordStatus
 from app.decorators import require_permission, current_user
 
 products_bp = Blueprint("products", __name__)
@@ -17,7 +17,7 @@ def _scope_query(q, user):
 @require_permission("products")
 def list_products():
     user = current_user()
-    rows = _scope_query(Product.query, user).order_by(Product.updated_at.desc()).all()
+    rows = Product.query.order_by(Product.updated_at.desc()).all()
     return jsonify([p.to_dict() for p in rows])
 
 
@@ -61,6 +61,7 @@ def create_product():
         manufacturer_id=manufacturer.id,
         description=data.get("desc", ""),
         shelf_life_months=int(shelf_life_months),
+        status=RecordStatus.ACTIVE,
     )
     db.session.add(product)
     db.session.commit()
@@ -92,5 +93,25 @@ def update_product(product_id):
             return jsonify({"error": "shelfLifeMonths must be a positive number."}), 400
         p.shelf_life_months = int(data["shelfLifeMonths"])
 
+    db.session.commit()
+    return jsonify(p.to_dict())
+
+@products_bp.patch("/<product_id>/status")
+@require_permission("products")
+def set_product_status(product_id):
+    user = current_user()
+    if normalize_role(user.role) == "employee":
+        return jsonify({"error": "View-only access to the product catalog."}), 403
+
+    p = _scope_query(Product.query, user).filter_by(id=product_id).first()
+    if not p:
+        return jsonify({"error": "Product not found."}), 404
+
+    data = request.get_json(silent=True) or {}
+    new_status = (data.get("status") or "").strip().upper()
+    if new_status not in (RecordStatus.ACTIVE.value, RecordStatus.INACTIVE.value):
+        return jsonify({"error": "status must be ACTIVE or INACTIVE."}), 400
+
+    p.status = RecordStatus(new_status)
     db.session.commit()
     return jsonify(p.to_dict())
