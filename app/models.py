@@ -171,6 +171,7 @@ class RolePermission(db.Model):
     __table_args__ = (
         db.UniqueConstraint("role", "permission_id", name="uq_role_permission"),
     )
+    permission = db.relationship("Permission")
 
     def to_dict(self):
         return {"id": self.id, "role": self.role.value, "granted": self.granted}
@@ -203,15 +204,19 @@ class UserPermission(db.Model):
     granted'."""
 
     __tablename__ = "user_permissions"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(
         db.String(UUID_LEN), db.ForeignKey("users.id"), primary_key=True
     )
+    role_permission_id = db.Column(db.Integer, db.ForeignKey("role_permissions.id"), primary_key=True)
     permission_id = db.Column(
         db.Integer, db.ForeignKey("permissions.id"), primary_key=True
     )
     granted = db.Column(db.Boolean, nullable=False, default=True)
 
     permission = db.relationship("Permission")
+   
+    
 
     def to_dict(self):
         return {"permission_id": self.permission_id, "granted": self.granted}
