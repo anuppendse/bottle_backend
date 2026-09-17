@@ -11,7 +11,12 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     jwt.init_app(app)
-    cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGIN"]}})
+    cors.init_app(app, resources={
+        r"/api/*": {"origins": app.config["CORS_ORIGIN"]},
+         r"/scan/*": {"origins": app.config["CORS_ORIGIN"]},
+         })
+    
+
 
     from app.routes.auth import auth_bp
     from app.routes.scan import scan_bp

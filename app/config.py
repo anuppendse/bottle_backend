@@ -23,7 +23,7 @@ class Config:
     DB_HOST = "localhost"
     DB_PORT = "5432"
     DB_NAME = "bottle_mgmt"
-    SCAN_BASE_URL = "http://localhost:5000"
+    SCAN_BASE_URL = "http://localhost:5173"
 
     SQLALCHEMY_DATABASE_URI = (
         f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
