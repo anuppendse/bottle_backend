@@ -45,7 +45,8 @@ def dispatch_ready_batches():
                 "batch": b.batch_no,
                 "productName": b.product.name if b.product else None,
                 "qty": b.qty,
-                "status": b.status,
+                # "status": b.status,
+                "status": b.status.value if hasattr(b.status, "value") else b.status,
             }
             for b in rows
         ]
@@ -122,7 +123,7 @@ def dispatch_history():
     user = current_user()
 
     query = (
-        Batch.query.filter(Batch.status == BatchStatus.ACTIVE)
+        Batch.query
         .order_by(Batch.created_at.desc())
     
     )
@@ -134,7 +135,8 @@ def dispatch_history():
             {
                 "batch": b.batch_no,
                 "product": b.product.name if b.product else None,
-                "status": b.status,
+                # "status": b.status,
+                "status": b.status.value if hasattr(b.status, "value") else b.status,
                 "when": b.created_at.isoformat() if b.created_at else None,
             }
             for b in rows

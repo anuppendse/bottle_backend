@@ -237,10 +237,16 @@ class Category(db.Model):
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
     name = db.Column(db.String(100), nullable=False, unique=True)
 
+    status = db.Column(
+        SqlEnum(RecordStatus, name="category_status_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
+
     products = db.relationship("Product", backref="category", lazy=True)
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name}
+        return {"id": self.id, "name": self.name, "status": self.status.value}
 
 
 class Manufacturer(db.Model):
@@ -376,6 +382,11 @@ class Product(db.Model):
     )
     description = db.Column(db.Text)
     shelf_life_months = db.Column(db.Integer, nullable=False)
+    status = db.Column(
+        SqlEnum(RecordStatus, name="product_status_enum"),
+        nullable=False,
+        default=RecordStatus.ACTIVE,
+    )
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -396,6 +407,7 @@ class Product(db.Model):
             "manufacturerId": self.manufacturer_id,
             "desc": self.description,
             "shelfLifeMonths": self.shelf_life_months,
+            "status": self.status.value,
             "firstBatch": first_batch,
             "lastBatch": last_batch,
             "updated": self.updated_at.isoformat() if self.updated_at else None,
