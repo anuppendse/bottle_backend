@@ -14,8 +14,6 @@ def login():
     email = data.get("email")
     password = data.get("password")
 
-    print(data)
-
     if not email or not password:
         return (
             jsonify({"error": "Enter your email and password to continue."}),
@@ -33,7 +31,6 @@ def login():
         or_(*conditions),
         User.status == RecordStatus.ACTIVE,
     ).first()
-
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid username/email or password."}), 401
 
