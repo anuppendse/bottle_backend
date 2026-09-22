@@ -9,6 +9,8 @@ from app.models import (
     Role,
     Manufacturer,
     RecordStatus,
+    RolePermission,
+    UserPermission
 )
 from app.decorators import require_permission, current_user
 
@@ -27,8 +29,6 @@ def _canonical_role(role_text):
     None if it isn't one of the allowed roles."""
     t = (role_text or "").strip().lower()
     return next((r for r in ROLES if r.lower() == t), None)
-
-
 
 
 @users_bp.get("")
@@ -50,6 +50,7 @@ def list_users():
         rows = User.query.all()
 
     return jsonify([u.to_dict() for u in rows])
+
 
 @users_bp.post("")
 @require_permission("users")
@@ -92,9 +93,6 @@ def create_user():
         except ValueError:
             return (jsonify({"error": f"Invalid role: {role_input}"}), 400)
 
-    if acting.role == Role.MANUFACTURER.value and role != Role.EMPLOYEE.value:
-        return (jsonify({"error": "Manufacturer can only create an employee"}), 403)
-
     manufacturer = Manufacturer.query.get(
         manufacturer_id=manufacturer_id, status=RecordStatus.ACTIVE
     )
@@ -102,11 +100,11 @@ def create_user():
         return (jsonify({"error": "Manufacturer not found"}), 404)
 
     user_with_email = User.query.filter(
-        User.email.ilike(email), User.manufacturer_id == acting.manufacturer_id
+        User.email.ilike(email), User.manufacturer_id == manufacturer_id
     ).first()
 
     user_with_username = User.query.filter(
-        User.username.ilike(username), User.manufacturer_id == acting.manufacturer_id
+        User.username.ilike(username), User.manufacturer_id == manufacturer_id
     ).first()
 
     if user_with_email or user_with_username:
@@ -115,9 +113,8 @@ def create_user():
             409,
         )
 
-    permissions = data.get("permissions")
-    if permissions is None:
-        permissions = default_permissions_for_role(role)
+    if acting.role == Role.MANUFACTURER.value and role != Role.EMPLOYEE.value:
+        return (jsonify({"error": "Manufacturer can only create an employee"}), 403)
 
     new_user = User(
         name=name,
@@ -129,7 +126,22 @@ def create_user():
     new_user.set_password(password)
     db.session.add(new_user)
     db.session.flush()
-    new_user.set_permissions(permissions)
+
+    role_permissions = RolePermission.query.filter(
+        RolePermission.role == role.value
+    ).all()
+    
+    
+    user_permission_list = []
+    for role_permission in role_permissions:
+        userPermission = UserPermission(
+                    user_id=new_user.id,
+                    role_permission_id=role_permission.id,
+                    permission_id=role_permission.permission_id,
+                    granted=role_permission.granted,
+                )
+        user_permission_list.append(userPermission)
+    db.session.add_all(user_permission_list)
     db.session.commit()
     return jsonify(new_user.to_dict()), 201
 
