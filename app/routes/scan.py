@@ -3,7 +3,7 @@ from datetime import date, datetime
 from flask import Blueprint, jsonify
 
 from app.extensions import db
-from app.models import Code
+from app.models import Code ,BatchScanCount
 
 scan_bp = Blueprint("scan", __name__)
 
@@ -45,6 +45,9 @@ def scan_code(token):
     if code.scan_count == 1:
         code.activated_at = datetime.utcnow()
         code.status = "activated"
+
+    _increment_batch_scan_count(batch.batch_no, product.id)
+
     db.session.commit()
 
     if was_already_scanned:
@@ -55,3 +58,19 @@ def scan_code(token):
         result = "genuine_first_scan"
 
     return jsonify({**base, "result": result})
+
+def _increment_batch_scan_count(batch_no, product_id):
+    """Get-or-create the scan-count row for this batch and bump it by 1.
+    Row-locks an existing row to avoid losing an increment when two
+    scans of the same batch land at nearly the same time."""
+    row = (
+        BatchScanCount.query
+        .filter_by(batch_no=batch_no)
+        .with_for_update()
+        .first()
+    )
+    if row is None:
+        row = BatchScanCount(batch_no=batch_no, product_id=product_id, count=1)
+        db.session.add(row)
+    else:
+        row.count += 1

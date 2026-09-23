@@ -71,7 +71,7 @@ def generate_labels():
         batch_kwargs = dict(
             product_id=product.id, manufacturer_id=product.manufacturer_id,
             mfg_date=mfg_date, expiry_date=expiry_date, qty=count, mrp=mrp,
-            status="IN PRODUCTION", generation_level=generation_level, created_by=user.id,        )
+            status="IN PRODUCTION", created_by=user.id,        )
         if batch_no:
             batch_kwargs["batch_no"] = batch_no
         batch = Batch(**batch_kwargs)
@@ -84,7 +84,7 @@ def generate_labels():
     
 
     tokens = []
-    if batch.generation_level == "batch":
+    if generation_level == "BATCH":
         if not batch.codes:
             tokens = mint_code(batch, code_type)
         codes_generated = len(tokens)

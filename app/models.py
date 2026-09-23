@@ -433,9 +433,7 @@ class Batch(db.Model):
     # "batch" = one code covers the whole batch (exactly one Code row ever
     # exists for it); "unit" = one code per physical unit (up to `qty`
     # Code rows — tens of thousands for a large batch).
-    generation_level = db.Column(
-        GENERATION_LEVEL_ENUM_TYPE, nullable=False, default=GenerationLevel.UNIT.value
-    )
+  
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(
         db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=True
@@ -475,17 +473,34 @@ class Batch(db.Model):
                 self.status.value if hasattr(self.status, "value") else self.status
             ),
             "displayStatus": self.display_status(),
-            "generationLevel": (
-                self.generation_level.value
-                if hasattr(self.generation_level, "value")
-                else self.generation_level
-            ),
             "created": self.created_at.isoformat() if self.created_at else None,
             "createdBy": creator.name if creator else None,
             "codesGenerated": len(self.codes),
             "codesActivated": sum(1 for c in self.codes if c.status == "activated"),
         }
 
+class BatchScanCount(db.Model):
+    __tablename__ = "batch_scan_counts"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    batch_no = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("batches.batch_no"), nullable=False, unique=True
+    )
+    product_id = db.Column(
+        db.String(UUID_LEN), db.ForeignKey("products.id"), nullable=False
+    )
+    count = db.Column(db.Integer, nullable=False, default=0)
+
+    batch = db.relationship("Batch", backref=db.backref("scan_count_row", uselist=False))
+    product = db.relationship("Product")
+
+    def to_dict(self):
+        return {
+            "batch": self.batch_no,
+            "productId": self.product_id,
+            "productName": self.product.name if self.product else None,
+            "count": self.count,
+        }
 
 class Code(db.Model):
     """A single QR/barcode token. If the parent batch's
