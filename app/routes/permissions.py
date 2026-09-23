@@ -6,12 +6,10 @@ from app.models import (
     Permission,
     RolePermission,
     UserPermission,
-    ROLES,
+    Role,
     default_permissions_for_role,
     User,
 )
-
-SETUP_KEY = "setup"  # never assignable — Admin-only via require_permission's own check
 
 from app.decorators import require_permission
 
@@ -28,378 +26,234 @@ def get_permission_tree():
         user = User.query.get(user_id)
         if not user:
             return jsonify({"error": "user not found"}), 404
-        
+
         user_permissions = UserPermission.query.filter(
-                    UserPermission.user_id == user_id).all()
-        
+            UserPermission.user_id == user_id
+        ).all()
+
         for up in user_permissions:
-            user_permission_dict[up.role_permission_id] = up.granted
-        
+            user_permission_dict[up.role_permission_id] = up
 
-    parent_rows = (
-        Permission.query.filter(Permission.parent_id.is_(None))
-        .order_by(Permission.sort_order)
-        .all()
-    )
+    # Walk ALL permissions regardless of nesting depth (was: parent_rows
+    # loop + a separate one-level-deep children loop below it — same body
+    # duplicated twice, and anything nested past depth 2 was never visited).
+    all_rows = Permission.query.order_by(Permission.sort_order).all()
 
     all_permission_dict = {}
-    for parent_row in parent_rows:
-        parent_role_nodes = RolePermission.query.filter(
-            RolePermission.permission_id == parent_row.to_dict().get("id")
+    for perm_row in all_rows:
+        role_nodes = RolePermission.query.filter(
+            RolePermission.permission_id == perm_row.id
         ).all()
 
-        for parent_role_node in parent_role_nodes:
-            print("parent_role_node", parent_role_node)
-            parent_node_dict = {}
-            parent_node_dict["key"] = parent_row.key
-            parent_node_dict["label"] = parent_row.label
-            parent_node_dict["parent_id"] = parent_row.parent_id
-            parent_node_dict["granted"] = parent_role_node.granted
-            parent_node_dict["id"] = parent_role_node.id
+        for role_node in role_nodes:
+            # Same fields as parent_node_dict / child_node_dict before.
+            node_dict = {
+                "key": perm_row.key,
+                "label": perm_row.label,
+                "parent_id": perm_row.parent_id,
+                "granted": role_node.granted,
+                "id": role_node.id,
+                "permission_id": perm_row.id,
+            }
+
             if user_id:
-                parent_node_dict["granted"] = user_permission_dict.get(parent_role_node.id)
-                
-            parent_node_dict["permission_id"] = parent_row.id
-            if parent_role_node.role.value in all_permission_dict:
-                all_permission_dict.get(parent_role_node.role.value).append(
-                    parent_node_dict
-                )
-            else:
-                node_list = []
-                node_list.append(parent_node_dict)
-                all_permission_dict[parent_role_node.role.value] = node_list
+                up = user_permission_dict.get(role_node.id)
+                if up:
+                    node_dict["granted"] = up.granted
+                    node_dict["user_id"] = user_id
+                    node_dict["id"] = up.id
+                    node_dict["role_permission_id"] = role_node.id
 
-        children = Permission.query.filter(
-            Permission.parent_id == parent_row.to_dict().get("id")
-        ).all()
-        for child_row in children:
-            child_role_nodes = RolePermission.query.filter(
-                RolePermission.permission_id == child_row.to_dict().get("id")
-            ).all()
+            all_permission_dict.setdefault(role_node.role.value, []).append(node_dict)
 
-            for child_role_node in child_role_nodes:
-                print("child_role_node", child_role_node)
-                child_node_dict = {}
-                child_node_dict["key"] = child_row.key
-                child_node_dict["label"] = child_row.label
-                child_node_dict["parent_id"] = child_row.parent_id
-                child_node_dict["granted"] = child_role_node.granted
-                child_node_dict["id"] = child_role_node.id
-                if user_id:
-                    child_node_dict["granted"] = user_permission_dict.get(child_role_node.id)
-                child_node_dict["permission_id"] = child_row.id
-                if child_role_node.role.value in all_permission_dict:
-                    all_permission_dict.get(child_role_node.role.value).append(
-                        child_node_dict
-                    )
-                else:
-                    node_list = []
-                    node_list.append(child_node_dict)
-                    all_permission_dict[child_role_node.role.value] = node_list
-                    
     if user_id:
-        return jsonify({"user_parmissions" : all_permission_dict[user.role.value]}), 200
+        return (
+            jsonify({"user_permissions": all_permission_dict.get(user.role.value, [])}),
+            200,
+        )
     return jsonify(all_permission_dict), 200
 
 
+# -------------------------------------PATCH API-------------------------------------------------
+@permissions_bp.patch("/role-permissions")
+def update_role_permission():
 
-@permissions_bp.get("/user")
-def get_user_permission_tree():
-
-    parent_rows = (
-        Permission.query.filter(Permission.parent_id.is_(None))
-        .order_by(Permission.sort_order)
-        .all()
-    )
-
-    all_permission_dict = {}
-    for parent_row in parent_rows:
-        parent_user_nodes = UserPermission.query.filter(
-            UserPermission.permission_id == parent_row.to_dict().get("id")
-        ).all()
-
-        for parent_user_node in parent_user_nodes:
-            parent_node_dict = {}
-            parent_node_dict["key"] = parent_row.key
-            parent_node_dict["label"] = parent_row.label
-            parent_node_dict["parent_id"] = parent_row.parent_id
-            parent_node_dict["granted"] = parent_user_node.granted
-            parent_node_dict["id"] = parent_row.id
-            parent_node_dict["permission_id"] = parent_row.id
-            if parent_user_node.user_id in all_permission_dict:
-                all_permission_dict.get(parent_user_node.user_id).append(
-                    parent_node_dict
-                )
-            else:
-                node_list = []
-                node_list.append(parent_node_dict)
-                all_permission_dict[parent_user_node.user_id] = node_list
-
-        children = Permission.query.filter(
-            Permission.parent_id == parent_row.to_dict().get("id")
-        ).all()
-        for child_row in children:
-            child_user_nodes = UserPermission.query.filter(
-                UserPermission.permission_id == child_row.to_dict().get("id")
-            ).all()
-
-            for child_user_node in child_user_nodes:
-                child_node_dict = {}
-                child_node_dict["key"] = child_row.key
-                child_node_dict["label"] = child_row.label
-                child_node_dict["parent_id"] = child_row.parent_id
-                child_node_dict["granted"] = child_user_node.granted
-                child_node_dict["id"] = child_row.id
-                child_node_dict["permission_id"] = child_row.id
-                if child_user_node.user_id in all_permission_dict:
-                    all_permission_dict.get(child_user_node.user_id).append(
-                        child_node_dict
-                    )
-                else:
-                    node_list = []
-                    node_list.append(child_node_dict)
-                    all_permission_dict[child_user_node.user_id] = node_list
-    return jsonify(all_permission_dict), 200
-
-
-@permissions_bp.get("/role-defaults")
-@require_permission("users")
-def role_defaults():
-    """Resolves the default permission set for a role."""
-    role = request.args.get("role", "")
-    return jsonify({"role": role, "permissions": default_permissions_for_role(role)})
-
-
-# ------------------------------------------------------------------------------------------------
-#                            PATCH API
-# ------------------------------------------------------------------------------------------------
-@permissions_bp.patch("/role-defaults")
-@require_permission("users")
-def add_role_permissions():
-    """Grants the given permissions to a role, without touching any
-    existing permissions that aren't mentioned in the request."""
     data = request.get_json(silent=True) or {}
-    role = (data.get("role") or "").strip()
-    if role not in ROLES:
-        return jsonify({"error": f"role must be one of: {', '.join(ROLES)}."}), 400
 
-    keys = data.get("permissions") or []
+    role_permission_ids = data["role_permission_ids"]
+    granted_perms = data["granted_perms"]
 
-    valid_perms = Permission.query.filter(
-        Permission.key.in_(keys), Permission.key != SETUP_KEY
+    if (
+        not isinstance(role_permission_ids, list)
+        or not isinstance(granted_perms, list)
+        or len(role_permission_ids) != len(granted_perms)
+    ):
+        return jsonify({"error": "invalid data"}), 400
+
+    if not all(isinstance(item, bool) for item in granted_perms):
+        return jsonify({"error": "granted must be true or false"}), 400
+
+    # Find RolePermission
+    role_permissions = RolePermission.query.filter(
+        RolePermission.id.in_(role_permission_ids)
     ).all()
 
-    existing_rows = RolePermission.query.filter_by(role=role).all()
-    existing_by_perm_id = {rp.permission_id: rp for rp in existing_rows}
+    if not role_permissions or len(role_permissions) != len(role_permission_ids):
+        return jsonify({"error": "Some Role permissions not found"}), 404
 
-    for p in valid_perms:
-        rp = existing_by_perm_id.get(p.id)
-        if rp:
-            rp.granted = True  # already exists, make sure it's on
-        else:
-            db.session.add(RolePermission(role=role, permission_id=p.id, granted=True))
+    role_permissions_dict = {
+        role_permission.id: role_permission for role_permission in role_permissions
+    }
 
+    modified_role_permission_list = []
+    modified_user_permission_list = []
+    for i, role_permission_id in enumerate(role_permission_ids):
+        role_permission_object = role_permissions_dict[role_permission_id]
+        role_permission_object.granted = granted_perms[i]
+        modified_role_permission_list.append(role_permission_object)
+
+        user_permission_rows = UserPermission.query.filter_by(
+            role_permission_id=role_permission_id
+        ).all()
+        for user_permission in user_permission_rows:
+            user_permission.granted = granted_perms[i]
+            modified_user_permission_list.append(user_permission)
+
+    db.session.add_all(modified_role_permission_list)
+    db.session.add_all(modified_user_permission_list)
     db.session.commit()
 
-    all_rows = RolePermission.query.filter_by(role=role, granted=True).all()
-    perm_keys = [
-        p.key
-        for p in Permission.query.filter(
-            Permission.id.in_([rp.permission_id for rp in all_rows])
-        ).all()
-    ]
-
-    return jsonify({"role": role, "permissions": sorted(perm_keys)})
-
-
-# --------------------------------------------------------------------------------------------
-#                    DELETE API
-# -------------------------------------------------------------------------------------------
-@permissions_bp.delete("/role-defaults")
-@require_permission("users")
-def remove_role_permissions():
-    """Revokes the given permissions from a role. Only touches the
-    permissions sent in the request — everything else stays as is."""
-    data = request.get_json(silent=True) or {}
-    role = (data.get("role") or "").strip()
-    if role not in ROLES:
-        return jsonify({"error": f"role must be one of: {', '.join(ROLES)}."}), 400
-
-    keys = data.get("permissions") or []
-
-    valid_perms = Permission.query.filter(Permission.key.in_(keys)).all()
-    valid_perm_ids = [p.id for p in valid_perms]
-
-    rows_to_remove = RolePermission.query.filter(
-        RolePermission.role == role,
-        RolePermission.permission_id.in_(valid_perm_ids),
-    ).all()
-
-    for rp in rows_to_remove:
-        still_referenced = UserPermission.query.filter_by(
-            role_permission_id=rp.id
-        ).first()
-        if still_referenced:
-            rp.granted = False  # can't delete, so just turn it off
-        else:
-            db.session.delete(rp)
-
-    db.session.commit()
-
-    remaining_rows = RolePermission.query.filter_by(role=role, granted=True).all()
-    remaining_keys = [
-        p.key
-        for p in Permission.query.filter(
-            Permission.id.in_([rp.permission_id for rp in remaining_rows])
-        ).all()
-    ]
-
-    return jsonify({"role": role, "permissions": sorted(remaining_keys)})
-
-
-# -----------------------------------------------------------------------------------------------
-#                              GET USER PERMISSION
-# -----------------------------------------------------------------------------------------------
-
-
-@permissions_bp.get("/user-defaults")
-@require_permission("users")
-def user_defaults():
-    """Resolves the effective permission set for a single user:
-    starts from their role's defaults, then applies any personal
-    overrides on top."""
-    user_id = request.args.get("user_id", "")
-
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "user not found"}), 404
-
-    # start with the role's default permission IDs
-    effective_ids = set(default_permissions_for_role(user.role.value))
-
-    # apply this user's personal overrides on top
-    overrides = UserPermission.query.filter_by(user_id=user_id).all()
-    for up in overrides:
-        if up.granted:
-            effective_ids.add(up.permission_id)
-        else:
-            effective_ids.discard(up.permission_id)
-
-    # convert IDs to readable keys for the response
-    perms = Permission.query.filter(Permission.id.in_(effective_ids)).all()
-
-    return jsonify(
-        {
-            "user_id": user_id,
-            "role": user.role.value if hasattr(user.role, "value") else user.role,
-            "permissions": sorted(p.key for p in perms),
-        }
+    return (
+        jsonify(
+            {
+                "message": "Permission updated successfully",
+                "role_permissions": [
+                    rp.to_dict() for rp in modified_role_permission_list
+                ],
+            }
+        ),
+        200,
     )
 
-    # -----------------------------------------------------------------------------------------
-    #                                 PATCH API
-    # -----------------------------------------------------------------------------------------
 
-
-@permissions_bp.patch("/user-overrides")
+@permissions_bp.post("/role-permissions")
 @require_permission("users")
-def set_user_permission_overrides():
-    """Sets an explicit override for a user on top of their role's defaults.
-    Only touches the permissions sent in the request."""
+def create_role_permission():
+
     data = request.get_json(silent=True) or {}
-    user_id = (data.get("user_id") or "").strip()
-    keys = data.get("permissions") or []
-    granted = data.get("granted", True)  # allows explicit grant or deny
+    permission_id = data.get("id")
 
-    user = User.query.get(user_id)
-    if not user:
-        return jsonify({"error": "user not found"}), 404
+    if permission_id is None:
+        return jsonify({"error": "id is required"}), 400
 
-    valid_perms = Permission.query.filter(
-        func.lower(Permission.key).in_([k.lower() for k in keys])
-    ).all()
+    permission = Permission.query.get(permission_id)
+    if not permission:
+        return jsonify({"error": f"no permission found for id '{permission_id}'"}), 404
 
-    existing_rows = UserPermission.query.filter_by(user_id=user_id).all()
-    existing_by_perm_id = {up.permission_id: up for up in existing_rows}
+    existing_rows = RolePermission.query.filter_by(permission_id=permission.id).all()
+    existing_by_role = {rp.role.value: rp for rp in existing_rows}
 
-    skipped = []
-    for p in valid_perms:
-        role_perm = RolePermission.query.filter_by(
-            role=user.role, permission_id=p.id
-        ).first()
-        if not role_perm:
-            skipped.append(p.key)  # no matching role_permission row to link to
-            continue
+    if len(existing_rows) == len(Role):
+        return jsonify({"message": "This Permission have been given already"}), 409
 
-        up = existing_by_perm_id.get(p.id)
-        if up:
-            up.granted = granted
-        else:
-            db.session.add(
-                UserPermission(
-                    user_id=user_id,
-                    permission_id=p.id,
-                    role_permission_id=role_perm.id,
-                    granted=granted,
-                )
+    rp_list = []
+    user_list = User.query.all()
+
+    for role_value in Role:
+        if role_value.value not in existing_by_role:
+            rp = RolePermission(
+                role=role_value, permission_id=permission.id, granted=False
             )
+            db.session.add(rp)
+            db.session.flush()
 
+            existing_by_role[role_value.value] = rp
+
+            rp_list.append(rp)
+            user_permission_list = []
+            for user in user_list:
+                userPermission = UserPermission(
+                    user_id=user.id,
+                    role_permission_id=rp.id,
+                    permission_id=rp.permission_id,
+                    granted=rp.granted,
+                )
+                user_permission_list.append(userPermission)
+            db.session.add_all(user_permission_list)
     db.session.commit()
 
-    remaining = UserPermission.query.filter_by(user_id=user_id, granted=True).all()
-    perm_keys = [
-        p.key
-        for p in Permission.query.filter(
-            Permission.id.in_([up.permission_id for up in remaining])
-        ).all()
-    ]
-
-    resp = {"user_id": user_id, "permissions": sorted(perm_keys)}
-    if skipped:
-        resp["skipped"] = skipped
-    return jsonify(resp)
+    return (
+        jsonify(
+            {
+                "rp": [{**rp.to_dict(), "key": permission.key} for rp in rp_list],
+                "message": "Role permissions and user permissions created for all users",
+            }
+        ),
+        201,
+    )
 
 
-# ---------------------------------------------------------------------------------------------
-#                             DELETE API
-# ---------------------------------------------------------------------------------------------
+@permissions_bp.patch("/user-permissions/<user_id>")
+def update_user_permission(user_id):
 
-
-@permissions_bp.delete("/user-overrides")
-@require_permission("users")
-def remove_user_permission_overrides():
-    """Soft-deletes a user's override for the given permissions by
-    setting granted=False. The row stays in the table (not hard-deleted),
-    but is treated the same as an explicit deny."""
-    data = request.get_json(silent=True) or {}
-    user_id = (data.get("user_id") or "").strip()
-    keys = data.get("permissions") or []
-
-    user = User.query.get(user_id)
+    user = User.query.filter_by(id=user_id).first()
     if not user:
-        return jsonify({"error": "user not found"}), 404
+        return jsonify({"error": "User not found."}), 404
 
-    valid_perms = Permission.query.filter(
-        func.lower(Permission.key).in_([k.lower() for k in keys])
+    data = request.get_json(silent=True) or {}
+
+    user_permission_ids = data["user_permission_ids"]
+    granted_perms = data["granted_perms"]
+
+    if (
+        not isinstance(user_permission_ids, list)
+        or not isinstance(granted_perms, list)
+        or len(user_permission_ids) != len(granted_perms)
+    ):
+        return jsonify({"error": "invalid data"}), 400
+
+    if not all(isinstance(item, bool) for item in granted_perms):
+        return jsonify({"error": "granted must be true or false"}), 400
+
+    # Find RolePermission
+    user_permissions = UserPermission.query.filter(
+        UserPermission.id.in_(user_permission_ids)
     ).all()
-    valid_perm_ids = [p.id for p in valid_perms]
 
-    rows_to_remove = UserPermission.query.filter(
-        UserPermission.user_id == user_id,
-        UserPermission.permission_id.in_(valid_perm_ids),
-    ).all()
+    if not user_permissions or len(user_permissions) != len(user_permission_ids):
+        return jsonify({"error": "Some User permissions not found"}), 404
 
-    for up in rows_to_remove:
-        up.granted = False  # soft delete — row stays, just marked not granted
+    user_permissions_dict = {
+        user_permission.id: user_permission for user_permission in user_permissions
+    }
 
+    modified_user_permission_list = []
+    for i, user_permission_id in enumerate(user_permission_ids):
+        user_permission_object = user_permissions_dict[user_permission_id]
+        user_permission_object.granted = granted_perms[i]
+        modified_user_permission_list.append(user_permission_object)
+    db.session.add_all(modified_user_permission_list)
     db.session.commit()
 
-    remaining = UserPermission.query.filter_by(user_id=user_id, granted=True).all()
-    perm_keys = [
-        p.key
-        for p in Permission.query.filter(
-            Permission.id.in_([up.permission_id for up in remaining])
-        ).all()
-    ]
+    return (
+        jsonify(
+            {
+                "message": "User permissions updated successfully",
+                "user_permissions": [
+                    rp.to_dict() for rp in modified_user_permission_list
+                ],
+            }
+        ),
+        200,
+    )
 
-    return jsonify({"user_id": user_id, "permissions": sorted(perm_keys)})
+
+# -----------------------API for Dropdown-----------------------------------------------
+@permissions_bp.get("/keys")
+@require_permission("users")
+def get_permission_keys():
+    """Feeds the dropdown: every assignable permission's id/key/label.
+    'setup' is excluded — it's Admin-only and never assignable via a
+    role_permissions row."""
+    perms = Permission.query.order_by(Permission.sort_order).all()
+    return jsonify([p.to_dict() for p in perms]), 200
