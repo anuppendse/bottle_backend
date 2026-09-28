@@ -1,16 +1,21 @@
-from datetime import datetime 
-from datetime import date
+from datetime import datetime
 
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models import Batch, Product, Recall, Anomaly, normalize_role, get_user_permissions
+from app.models import Batch, BatchStatus, Product, Recall, Anomaly, normalize_role, get_user_permissions
 from app.decorators import require_permission, current_user
 
+from sqlalchemy import or_
 
 batches_bp = Blueprint("batches", __name__)
 
-_SORT_ORDER = {"ACTIVE": 0, "RECALLED": 1, "EXPIRED": 2}
+_SORT_ORDER = {
+    "IN PRODUCTION": 0,
+    "ACTIVE": 1,
+    "RECALLED": 2,
+    "EXPIRED": 3,
+}
 
 
 def _scope_query(q, user):
@@ -26,13 +31,43 @@ def generate_batch_id(manufacturer_seq_no: int, sequence: int, gen_date: date = 
     reversed_date = f"{rev_year}{rev_month}{rev_day}"
     return f"BTH-{manufacturer_seq_no:04d}-{reversed_date}-{sequence:03d}"
 
-
 @batches_bp.get("")
 @require_permission("batches")
 def list_batches():
     user = current_user()
-    rows = _scope_query(Batch.query, user).all()
-    rows.sort(key=lambda b: (_SORT_ORDER.get(b.status, 9), b.batch_no))
+    # rows = _scope_query(Batch.query, user).all()
+    # rows.sort(key=lambda b: (_SORT_ORDER.get(b.status, 9), b.batch_no))
+    # return jsonify([b.to_dict() for b in rows])
+    q = _scope_query(Batch.query, user)
+
+    status = request.args.get("status", "").strip()
+
+    # Status filter
+    if status and status != "ALL":
+        q = q.filter(Batch.status == status)
+
+    search = request.args.get("search", "").strip()
+    
+    if search:
+        q = q.join(Product, Batch.product_id == Product.id).filter(
+        or_(
+            Batch.batch_no.ilike(f"%{search}%"),
+            Product.name.ilike(f"%{search}%")
+        )
+    )
+
+    rows = q.all()
+
+    rows.sort(
+    key=lambda b: (
+        _SORT_ORDER.get(
+            b.status.value if hasattr(b.status, "value") else str(b.status),
+            9
+        ),
+        b.batch_no
+    )
+)
+
     return jsonify([b.to_dict() for b in rows])
 
 @batches_bp.get("/<batch_or_product_id>")
@@ -71,15 +106,15 @@ def recall_batch(batch_no):
         return jsonify({"error": "Batch not found."}), 404
     if "batches.recall" not in get_user_permissions(user.id) and normalize_role(user.role) != "admin":
         return jsonify({"error": "403 — you don't have permission to recall batches."}), 403
-    if batch.status != "ACTIVE":
+    if batch.status != BatchStatus.ACTIVE:
         return jsonify({"error": "Only active batches can be recalled."}), 400
 
     data = request.get_json(silent=True) or {}
     reason = (data.get("reason") or "").strip()
     if not reason:
         return jsonify({"error": "Reason for recall is required."}), 400
-
-    batch.status = "RECALLED"
+    
+    batch.status = BatchStatus.RECALLED 
     recall = Recall(batch_no=batch.batch_no, reason=reason, recalled_by=user.id,
                      recalled_at=datetime.utcnow())
     db.session.add(recall)

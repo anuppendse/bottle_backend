@@ -7,7 +7,6 @@ import hashlib
 from flask import current_app
 
 
-
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.extensions import db
@@ -600,6 +599,52 @@ class Recall(db.Model):
             "recalledBy": f"{recaller.name} ({recaller.role})" if recaller else "—",
             "date": self.recalled_at.isoformat() if self.recalled_at else None,
             "status": "RECALLED",
+        }
+
+class BatchActivation(db.Model):
+    __tablename__ = "batch_activations"
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True,
+        autoincrement=True
+    )
+
+    batch_no = db.Column(
+        db.String(UUID_LEN),
+        db.ForeignKey("batches.batch_no"),
+        nullable=False
+    )
+
+    activated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow
+    )
+
+    activated_by = db.Column(
+        db.String(UUID_LEN),
+        db.ForeignKey("users.id"),
+        nullable=False
+    )
+
+    activated_by_user = db.relationship(
+        "User",
+        foreign_keys=[activated_by]
+    )
+
+    def to_dict(self):
+        user = self.activated_by_user
+
+        return {
+            "id": self.id,
+            "batch": self.batch_no,
+            "activatedAt": (
+                self.activated_at.isoformat()
+                if self.activated_at
+                else None
+            ),
+            "activatedBy": user.name if user else "—",
         }
 
 

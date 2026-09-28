@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models import Batch, normalize_role, BatchStatus
+from app.models import Batch, BatchActivation, normalize_role, BatchStatus
 from app.decorators import require_permission, current_user
+from datetime import datetime
 
 dispatch_bp = Blueprint("dispatch", __name__)
 
@@ -95,7 +96,17 @@ def activate_batch():
         )
 
     # Activate the batch
-    batch.status = "ACTIVE"
+    batch.status = BatchStatus.ACTIVE
+
+    activated_at = datetime.utcnow()
+    
+    activation = BatchActivation(
+    batch_no=batch.batch_no,
+    activated_at=activated_at,
+    activated_by=user.id
+    )
+
+    db.session.add(activation)
 
     db.session.commit()
 
@@ -104,8 +115,9 @@ def activate_batch():
             "message": "Batch activated successfully.",
             "batch": batch.batch_no,
             "product": batch.product.name if batch.product else None,
-            "status": batch.status,
+            "status": batch.status.value,
             "activatedBy": user.name,
+            "activatedAt": activated_at.isoformat(),
         }
     )
 
@@ -113,32 +125,35 @@ def activate_batch():
 @dispatch_bp.get("/history")
 @require_permission("dispatchConsole")
 def dispatch_history():
-    """
-    Return batches activated by the current user.
-
-    We no longer depend on activated Code rows because
-    Dispatch Console now activates the batch itself.
-    """
-
     user = current_user()
 
     query = (
-        Batch.query
-        .order_by(Batch.created_at.desc())
-    
+        BatchActivation.query
+        .join(Batch, Batch.batch_no == BatchActivation.batch_no)
+        .order_by(BatchActivation.activated_at.desc())
     )
+
+    if normalize_role(user.role) == "manufacturer":
+        query = query.filter(Batch.manufacturer_id == user.manufacturer_id)
 
     rows = query.all()
 
     return jsonify(
         [
             {
-                "batch": b.batch_no,
-                "product": b.product.name if b.product else None,
-                # "status": b.status,
-                "status": b.status.value if hasattr(b.status, "value") else b.status,
-                "when": b.created_at.isoformat() if b.created_at else None,
+                "id": activation.id,
+                "batch": activation.batch_no,
+                "activatedBy": (
+                    activation.activated_by_user.name
+                    if getattr(activation, "activated_by_user", None)
+                    else None
+                ),
+                "when": (
+                    activation.activated_at.isoformat()
+                    if activation.activated_at
+                    else None
+                ),
             }
-            for b in rows
+            for activation in rows
         ]
     )
