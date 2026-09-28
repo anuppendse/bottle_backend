@@ -10,7 +10,7 @@ from app.models import (
     Manufacturer,
     RecordStatus,
     RolePermission,
-    UserPermission
+    UserPermission,
 )
 from app.decorators import require_permission, current_user
 
@@ -72,7 +72,7 @@ def create_user():
         or not username
         or not role_input
         or not password
-        or not manufacturer_id
+        # or not manufacturer_id
     ):
         return (
             jsonify(
@@ -92,12 +92,21 @@ def create_user():
             role = Role(role_input.strip().upper())
         except ValueError:
             return (jsonify({"error": f"Invalid role: {role_input}"}), 400)
-
-    manufacturer = Manufacturer.query.get(
-        manufacturer_id=manufacturer_id, status=RecordStatus.ACTIVE
-    )
-    if not manufacturer:
-        return (jsonify({"error": "Manufacturer not found"}), 404)
+        manufacturer = None
+        if role == Role.EMPLOYEE:
+            if not manufacturer_id:
+                return (
+                    jsonify(
+                        {"error": "manufacturer_id is required for Employee accounts."}
+                    ),
+                    400,
+                )
+            manufacturer = Manufacturer.query.filter_by(
+                id=manufacturer_id, status=RecordStatus.ACTIVE).first()
+            if not manufacturer:
+                    return jsonify({"error": "Manufacturer not found"}), 404
+        else:
+            manufacturer_id = None  # ignore/clear any stray value for non-Employee roles
 
     user_with_email = User.query.filter(
         User.email.ilike(email), User.manufacturer_id == manufacturer_id
@@ -115,14 +124,22 @@ def create_user():
 
     if acting.role == Role.MANUFACTURER.value and role != Role.EMPLOYEE.value:
         return (jsonify({"error": "Manufacturer can only create an employee"}), 403)
-
+     # Create manufacturer record if role is Manufacturer
+    if role == Role.MANUFACTURER:
+        manufacturer = Manufacturer(
+        name=name,
+        status=RecordStatus.ACTIVE
+    )
+        db.session.add(manufacturer)
+        db.session.flush()
+        manufacturer_id = manufacturer.id
+        
     new_user = User(
         name=name,
         email=email,
         username=username,
         role=role,
-        manufacturer_id=manufacturer_id,
-    )
+        manufacturer_id=manufacturer_id,)
     new_user.set_password(password)
     db.session.add(new_user)
     db.session.flush()
@@ -130,16 +147,15 @@ def create_user():
     role_permissions = RolePermission.query.filter(
         RolePermission.role == role.value
     ).all()
-    
-    
+
     user_permission_list = []
     for role_permission in role_permissions:
         userPermission = UserPermission(
-                    user_id=new_user.id,
-                    role_permission_id=role_permission.id,
-                    permission_id=role_permission.permission_id,
-                    granted=role_permission.granted,
-                )
+            user_id=new_user.id,
+            role_permission_id=role_permission.id,
+            permission_id=role_permission.permission_id,
+            granted=role_permission.granted,
+        )
         user_permission_list.append(userPermission)
     db.session.add_all(user_permission_list)
     db.session.commit()
@@ -200,7 +216,11 @@ def toggle_status(user_id):
     target = _scope_query(User.query, acting).filter_by(id=user_id).first()
     if not target:
         return jsonify({"error": "User not found."}), 404
-    target.status = "Inactive" if target.status == "Active" else "Active"
+    target.status = (
+    RecordStatus.INACTIVE
+    if target.status == RecordStatus.ACTIVE
+    else RecordStatus.ACTIVE
+)
     db.session.commit()
     return jsonify(target.to_dict())
 
