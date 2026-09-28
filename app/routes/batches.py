@@ -1,10 +1,12 @@
-from datetime import datetime
+from datetime import datetime 
+from datetime import date
 
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
 from app.models import Batch, Product, Recall, Anomaly, normalize_role, get_user_permissions
 from app.decorators import require_permission, current_user
+
 
 batches_bp = Blueprint("batches", __name__)
 
@@ -15,6 +17,14 @@ def _scope_query(q, user):
     if normalize_role(user.role) == "manufacturer":
         return q.filter_by(manufacturer_id=user.manufacturer_id)
     return q
+
+def generate_batch_id(manufacturer_seq_no: int, sequence: int, gen_date: date = None) -> str:
+    gen_date = gen_date or date.today()
+    rev_year = str(gen_date.year)[::-1]
+    rev_month = f"{gen_date.month:02d}"[::-1]
+    rev_day = f"{gen_date.day:02d}"[::-1]
+    reversed_date = f"{rev_year}{rev_month}{rev_day}"
+    return f"BTH-{manufacturer_seq_no:04d}-{reversed_date}-{sequence:03d}"
 
 
 @batches_bp.get("")

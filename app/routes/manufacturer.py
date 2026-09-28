@@ -52,7 +52,9 @@ def create_manufacturer():
     except ValueError:
         return jsonify({"error": "Invalid codeType or generationLevel."}), 400
 
-    m = Manufacturer(name=name, code_type=code_type_enum, generation_level=generation_level_enum)
+    next_seq_no = (db.session.query(db.func.max(Manufacturer.seq_no)).scalar() or 0) + 1
+
+    m = Manufacturer(name=name, seq_no=next_seq_no, code_type=code_type_enum, generation_level=generation_level_enum)
     _apply_optional_fields(m, data)
     db.session.add(m)
     db.session.commit()

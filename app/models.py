@@ -7,6 +7,7 @@ import hashlib
 from flask import current_app
 
 
+
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from app.extensions import db
@@ -67,9 +68,10 @@ BATCH_STATUSES = [s.value for s in BatchStatus]
 BATCH_STATUS_ENUM_TYPE = _enum_column_type(BatchStatus, "batch_status_enum")
 
 
-class GenerationLevel(enum.Enum):
+class GenerationLevel(str, enum.Enum):
     BATCH = "BATCH"
     UNIT = "UNIT"
+    BOTH = "BOTH"
 
 
 GENERATION_LEVELS = [g.value for g in GenerationLevel]
@@ -252,6 +254,7 @@ class Category(db.Model):
 class Manufacturer(db.Model):
     __tablename__ = "manufacturers"
     id = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
+    seq_no = db.Column(db.Integer, unique=True)
     name = db.Column(db.String(200), nullable=False, unique=True)
     code_type = db.Column(
         SqlEnum(CodeType, name="manufacturer_code_type_enum"),
@@ -279,6 +282,7 @@ class Manufacturer(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
+            "seqNo": self.seq_no,
             "name": self.name,
             "codeType": self.code_type.value,
             "generationLevel": self.generation_level.value,  # was self.generation_leve (typo, AttributeError)
@@ -433,7 +437,10 @@ class Batch(db.Model):
     # "batch" = one code covers the whole batch (exactly one Code row ever
     # exists for it); "unit" = one code per physical unit (up to `qty`
     # Code rows — tens of thousands for a large batch).
-  
+    generation_level = db.Column(
+        GENERATION_LEVEL_ENUM_TYPE, nullable=False, default=GenerationLevel.UNIT.value
+    )
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(
         db.String(UUID_LEN), db.ForeignKey("users.id"), nullable=True
@@ -465,6 +472,7 @@ class Batch(db.Model):
             "productName": self.product.name,
             "manufacturer": self.manufacturer_id,
             "manufacturerName": self.product.manufacturer.name,
+            "generationLevel": self.generation_level.value,
             "mfg": self.mfg_date.isoformat() if self.mfg_date else "—",
             "expiry": self.expiry_date.isoformat() if self.expiry_date else "—",
             "qty": self.qty,

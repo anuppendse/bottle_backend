@@ -9,7 +9,8 @@ from flask import Blueprint, request, jsonify, Response, current_app, send_file
 
 from app.extensions import db
 from app.helpers import mint_code
-from app.models import Batch, Product, Code, CsvExport, GENERATION_LEVELS, CODE_TYPES, normalize_role
+from app.models import Batch, Product, Manufacturer, Code, CsvExport, GENERATION_LEVELS, CODE_TYPES, normalize_role
+from app.routes.batches import generate_batch_id
 from app.decorators import require_permission, current_user
 from app.utils import add_months
 
@@ -41,9 +42,12 @@ def generate_labels():
 
     if not product_name and not product_id:
         return jsonify({"error": "Enter a product name to enable generation."}), 400
-    if not mrp or not count or int(count) <= 0:
-        return jsonify({"error": "Enter an MRP and a positive number of units to enable generation."}), 400
+    if not mrp:
+        return jsonify({"error": "Enter an MRP to enable generation."}), 400
+    if generation_level != "BATCH" and (not count or int(count) <= 0):
+        return jsonify({"error": "Enter a positive number of units to enable generation."}), 400
     if generation_level not in GENERATION_LEVELS:
+
         return jsonify({"error": f"generationLevel must be one of: {', '.join(GENERATION_LEVELS)}."}), 400
     if code_type not in CODE_TYPES:
         return jsonify({"error": f"codeType must be one of: {', '.join(CODE_TYPES)}."}), 400
@@ -63,17 +67,23 @@ def generate_labels():
 
     mfg_date = date.today()
     expiry_date = add_months(mfg_date, product.shelf_life_months)
-    count = int(count)
+    count = int(count) if count else 0
 
     batch_no = (data.get("batchNo") or "").strip() or None
     batch = Batch.query.get(batch_no) if batch_no else None
     if not batch:
+        if not batch_no:
+            manufacturer = Manufacturer.query.get(product.manufacturer_id)
+            today_count = Batch.query.filter_by(manufacturer_id=product.manufacturer_id).filter(
+                db.func.date(Batch.created_at) == mfg_date
+            ).count()
+            batch_no = generate_batch_id(manufacturer.seq_no, today_count + 1, mfg_date)
+
         batch_kwargs = dict(
+            batch_no=batch_no,
             product_id=product.id, manufacturer_id=product.manufacturer_id,
             mfg_date=mfg_date, expiry_date=expiry_date, qty=count, mrp=mrp,
-            status="IN PRODUCTION", created_by=user.id,        )
-        if batch_no:
-            batch_kwargs["batch_no"] = batch_no
+            status="IN PRODUCTION", generation_level=generation_level, created_by=user.id,        )
         batch = Batch(**batch_kwargs)
         db.session.add(batch)
     else:
@@ -84,9 +94,15 @@ def generate_labels():
     
 
     tokens = []
-    if generation_level == "BATCH":
+    if batch.generation_level == "BATCH":
         if not batch.codes:
             tokens = mint_code(batch, code_type)
+        codes_generated = len(tokens)
+    elif batch.generation_level == "BOTH":
+        if not batch.codes:
+            tokens.extend(mint_code(batch, code_type))  # one batch-level code
+        for i in range(count):
+            tokens.extend(mint_code(batch, code_type))  # count-many unit-level codes
         codes_generated = len(tokens)
     else:
         for i in range(count):

@@ -17,7 +17,10 @@ def _scope_query(q, user):
 @require_permission("products")
 def list_products():
     user = current_user()
-    rows = Product.query.order_by(Product.updated_at.desc()).all()
+    if user.manufacturer_id is None :
+       rows = Product.query.order_by(Product.updated_at.desc()).all()
+    else :
+        rows = Product.query.filter_by(manufacturer_id=user.manufacturer_id).order_by(Product.updated_at.desc()).all()
     return jsonify([p.to_dict() for p in rows])
 
 
