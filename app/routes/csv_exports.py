@@ -30,20 +30,43 @@ def list_exports():
 @csv_bp.post("/exports/<int:export_id>/download")
 @require_permission("csvDownloads")
 def download_export(export_id):
-    """Marks the (one-time, non-Admin/Manufacturer) free download as
-    used and hands back the batch id to fetch the actual CSV from
-    /api/labels/<batch>/csv."""
+    """Marks the one-time download as used and creates a
+    Pending redownload request after the first download."""
+    
     user = current_user()
+
     export = CsvExport.query.get(export_id)
+
     if not export:
         return jsonify({"error": "Export not found."}), 404
-    can_direct_download = normalize_role(user.role) in ("admin", "manufacturer")
+
+    can_direct_download = normalize_role(user.role) in (
+        "admin",
+        "manufacturer"
+    )
+
     if not can_direct_download and export.first_download_used:
-        return jsonify({"error": "This export has already been downloaded once. Request a redownload."}), 403
+        return jsonify({
+            "error": "This export has already been downloaded once. Request a redownload."
+        }), 403
+
     if not can_direct_download:
+        # Mark first download as used
         export.first_download_used = True
+
+        # Create Pending redownload request
+        req = RedownloadRequest(
+            requested_by=user.id,
+            batch_no=export.batch_no,
+            reason="Redownload requested after first download."
+        )
+
+        db.session.add(req)
         db.session.commit()
-    return jsonify({"batch": export.batch_no})
+
+    return jsonify({
+        "batch": export.batch_no
+    })
 
 
 @csv_bp.post("/exports/<int:export_id>/request-redownload")

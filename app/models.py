@@ -697,7 +697,7 @@ class CsvExport(db.Model):
             "manufacturer": b.product.manufacturer.name,
             "manufacturerId": b.manufacturer_id,
             "date": self.generated_at.isoformat() if self.generated_at else None,
-            "status": b.status,
+          "status": b.status.value if b.status else None,
             "firstDownloadAvailable": not self.first_download_used,
         }
 
@@ -729,7 +729,7 @@ class RedownloadRequest(db.Model):
             "batch": self.batch_no,
             "reason": self.reason,
             "date": self.created_at.isoformat() if self.created_at else None,
-            "status": self.status,
+            "status": self.status.value if self.status else None,
         }
 
 
