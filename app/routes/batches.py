@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import datetime, date
+
+from sqlalchemy.orm import joinedload
+
+from app.utils import add_months
 
 from flask import Blueprint, request, jsonify
 
 from app.extensions import db
-from app.models import Batch, BatchStatus, Product, Recall, Anomaly, normalize_role, get_user_permissions
+from app.models import Batch, BatchStatus, Role, Product, Recall, Anomaly, normalize_role, get_user_permissions
 from app.decorators import require_permission, current_user
 
 from sqlalchemy import or_
@@ -35,28 +39,35 @@ def generate_batch_id(manufacturer_seq_no: int, sequence: int, gen_date: date = 
 @require_permission("batches")
 def list_batches():
     user = current_user()
-    # rows = _scope_query(Batch.query, user).all()
-    # rows.sort(key=lambda b: (_SORT_ORDER.get(b.status, 9), b.batch_no))
-    # return jsonify([b.to_dict() for b in rows])
-    q = _scope_query(Batch.query, user)
+    q = Batch.query
+
+    if user.role.value in [Role.MANUFACTURER.value, Role.EMPLOYEE.value]:
+        q == q.filter(Batch.manufacturer_id == user.manufacturer_id)
 
     status = request.args.get("status", "").strip()
 
     # Status filter
     if status and status != "ALL":
-        q = q.filter(Batch.status == status)
+        try:
+            batch_status = BatchStatus(status.strip().upper())
+        except ValueError:
+            return (jsonify({"error": f"Invalid batch_status: {batch_status}"}), 400)
+        q = q.filter(Batch.status == batch_status)
 
     search = request.args.get("search", "").strip()
-    
+
     if search:
-        q = q.join(Product, Batch.product_id == Product.id).filter(
-        or_(
-            Batch.batch_no.ilike(f"%{search}%"),
-            Product.name.ilike(f"%{search}%")
+        q = q.filter(
+            # q = q.join(Product, Batch.product_id == Product.id).filter(
+            or_(Batch.batch_no.ilike(f"%{search}%"), row.product.ilike(f"%{search}%"))
         )
-    )
 
     rows = q.all()
+
+    for row in rows:
+        if row.expiry_date and row.expiry_date < date.today():
+            row.status = BatchStatus.EXPIRED
+    db.session.commit()
 
     rows.sort(
     key=lambda b: (
@@ -104,6 +115,8 @@ def recall_batch(batch_no):
     batch = _scope_query(Batch.query, user).filter_by(batch_no=batch_no).first()
     if not batch:
         return jsonify({"error": "Batch not found."}), 404
+    if batch.status == BatchStatus.EXPIRED:
+        return jsonify({"error": "This batch is expired and cannot be recalled."}), 400
     if "batches.recall" not in get_user_permissions(user.id) and normalize_role(user.role) != "admin":
         return jsonify({"error": "403 — you don't have permission to recall batches."}), 403
     if batch.status != BatchStatus.ACTIVE:
