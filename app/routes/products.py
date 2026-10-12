@@ -16,9 +16,12 @@ def _scope_query(q, user):
 @products_bp.get("")
 @require_permission("products")
 def list_products():
+    
     user = current_user()
+    
     query = Product.query
     status_filter = request.args.get("status")
+    
     if status_filter:
         try:
             query = query.filter(
@@ -29,10 +32,12 @@ def list_products():
                 jsonify({"error": f"Invalid status: {status_filter}"}),
                 400,
             )
+    
     if user.manufacturer_id is None :
        rows = query.order_by(Product.updated_at.desc()).all()
     else :
         rows = query.filter(Product.manufacturer_id==user.manufacturer_id).order_by(Product.updated_at.desc()).all()
+        
     return jsonify([p.to_dict() for p in rows])
 
 

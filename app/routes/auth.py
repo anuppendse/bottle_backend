@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token
 
-from app.models import User, db, RecordStatus
+from app.models import User, db, RecordStatus, Manufacturer
 from app.decorators import require_auth, current_user
 from sqlalchemy import or_
 
@@ -41,3 +41,23 @@ def login():
 @require_auth
 def me():
     return jsonify(current_user().to_dict())
+
+@auth_bp.get("/account")
+@require_auth
+def account():
+    user = current_user()
+
+    manufacturer_name = None
+    if user.manufacturer_id:
+        m = Manufacturer.query.get(user.manufacturer_id)
+        manufacturer_name = m.name if m else None
+
+    role = user.role.value if hasattr(user.role, "value") else user.role
+
+    return jsonify({
+        "name": user.name,
+        "email": user.email,
+        "username": user.username,
+        "manufacturer": manufacturer_name,   # None for Admin users
+        "role": role,
+    })
