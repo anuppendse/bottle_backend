@@ -56,7 +56,6 @@ def list_users():
 @require_permission("users")
 def create_user():
     acting = current_user()
-
     data = request.get_json(silent=True) or {}
 
     name = data.get("name")
@@ -66,80 +65,50 @@ def create_user():
     password = data.get("password")
     manufacturer_id = data.get("manufacturer_id")
 
-    if (
-        not name
-        or not email
-        or not username
-        or not role_input
-        or not password
-        # or not manufacturer_id
-    ):
-        return (
-            jsonify(
-                {
-                    "error": "Name, email, username, password , manufacturer_id and role,  are required."
-                }
-            ),
-            400,
-        )
+    if not name or not email or not username or not role_input or not password:
+        return jsonify({"error": "Name, email, username, password and role are required."}), 400
 
     email = email.strip().lower()
     username = username.strip().lower()
     name = name.strip()
 
-    if role_input:
-        try:
-            role = Role(role_input.strip().upper())
-        except ValueError:
-            return (jsonify({"error": f"Invalid role: {role_input}"}), 400)
-        manufacturer = None
-        if role == Role.EMPLOYEE:
-            if not manufacturer_id:
-                return (
-                    jsonify(
-                        {"error": "manufacturer_id is required for Employee accounts."}
-                    ),
-                    400,
-                )
-            manufacturer = Manufacturer.query.filter_by(
-                id=manufacturer_id, status=RecordStatus.ACTIVE).first()
-            if not manufacturer:
-                    return jsonify({"error": "Manufacturer not found"}), 404
-        else:
-            manufacturer_id = None  # ignore/clear any stray value for non-Employee roles
+    # role
+    try:
+        role = Role(role_input.strip().upper())
+    except ValueError:
+        return jsonify({"error": f"Invalid role: {role_input}"}), 400
 
-    user_with_email = User.query.filter(
-        User.email.ilike(email), User.manufacturer_id == manufacturer_id
-    ).first()
+    # a Manufacturer user can only create employees in their own org
+    if acting.role == Role.MANUFACTURER:
+        if role != Role.EMPLOYEE:
+            return jsonify({"error": "Manufacturer can only create an employee"}), 403
+        manufacturer_id = acting.manufacturer_id
 
-    user_with_username = User.query.filter(
-        User.username.ilike(username), User.manufacturer_id == manufacturer_id
-    ).first()
+    # duplicate checks (global, because username/email are unique in the table)
+    if User.query.filter(User.username.ilike(username)).first():
+        return jsonify({"error": "This username already exists."}), 409
+    if User.query.filter(User.email.ilike(email)).first():
+        return jsonify({"error": "This email already exists."}), 409
 
-    if user_with_email or user_with_username:
-        return (
-            jsonify({"error": "A user with this username or  email already exists."}),
-            409,
-        )
+    # manufacturer required for Employee and Manufacturer roles
+    if role in (Role.EMPLOYEE, Role.MANUFACTURER):
+        if not manufacturer_id:
+            return jsonify({"error": "manufacturer_id is required for Employee and Manufacturer accounts."}), 400
+        manufacturer = Manufacturer.query.filter_by(
+            id=manufacturer_id, status=RecordStatus.ACTIVE
+        ).first()
+        if not manufacturer:
+            return jsonify({"error": "Manufacturer not found"}), 404
+    else:
+        manufacturer_id = None  # Admin accounts have no manufacturer
 
-    if acting.role == Role.MANUFACTURER.value and role != Role.EMPLOYEE.value:
-        return (jsonify({"error": "Manufacturer can only create an employee"}), 403)
-     # Create manufacturer record if role is Manufacturer
-    if role == Role.MANUFACTURER:
-        manufacturer = Manufacturer(
-        name=name,
-        status=RecordStatus.ACTIVE
-    )
-        db.session.add(manufacturer)
-        db.session.flush()
-        manufacturer_id = manufacturer.id
-        
     new_user = User(
         name=name,
         email=email,
         username=username,
         role=role,
-        manufacturer_id=manufacturer_id,)
+        manufacturer_id=manufacturer_id,
+    )
     new_user.set_password(password)
     db.session.add(new_user)
     db.session.flush()
@@ -147,20 +116,17 @@ def create_user():
     role_permissions = RolePermission.query.filter(
         RolePermission.role == role.value
     ).all()
-
-    user_permission_list = []
-    for role_permission in role_permissions:
-        userPermission = UserPermission(
+    db.session.add_all([
+        UserPermission(
             user_id=new_user.id,
-            role_permission_id=role_permission.id,
-            permission_id=role_permission.permission_id,
-            granted=role_permission.granted,
+            role_permission_id=rp.id,
+            permission_id=rp.permission_id,
+            granted=rp.granted,
         )
-        user_permission_list.append(userPermission)
-    db.session.add_all(user_permission_list)
+        for rp in role_permissions
+    ])
     db.session.commit()
     return jsonify(new_user.to_dict()), 201
-
 
 @users_bp.put("/<user_id>")
 @require_permission("users")
