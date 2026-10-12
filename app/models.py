@@ -70,7 +70,11 @@ BATCH_STATUS_ENUM_TYPE = _enum_column_type(BatchStatus, "batch_status_enum")
 class GenerationLevel(str, enum.Enum):
     BATCH = "BATCH"
     UNIT = "UNIT"
-    BOTH = "BOTH"
+    
+class ManufacturerStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    
 
 
 GENERATION_LEVELS = [g.value for g in GenerationLevel]
@@ -93,6 +97,8 @@ class CodeType(enum.Enum):
     QR = "QR"
     BARCODE = "BARCODE"
     BOTH = "BOTH"
+    
+    
 
 
 class RecordStatus(enum.Enum):
@@ -266,10 +272,10 @@ class Manufacturer(db.Model):
         default=GenerationLevel.UNIT,  # was RecordStatus.ACTIVE — wrong enum type
     )
     status = db.Column(
-        SqlEnum(RecordStatus, name="manufacturer_enum"),
-        nullable=False,
-        default=RecordStatus.ACTIVE,
-    )
+            SqlEnum(RecordStatus, name="user_status_enum"),
+            nullable=False,
+            default=RecordStatus.ACTIVE,)
+    
     company_name = db.Column(db.String(200), nullable=True)
     gstin = db.Column(db.String(40), nullable=True)
     contact_email = db.Column(db.String(200), nullable=True)
@@ -289,6 +295,8 @@ class Manufacturer(db.Model):
             "gstin": self.gstin,
             "contactEmail": self.contact_email,
             "contactPhone": self.contact_phone,
+            "status": self.status.value
+            
         }
 
 
