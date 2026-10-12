@@ -98,7 +98,6 @@ def generate_labels():
         if not batch.codes:
             tokens = mint_code(batch, code_type)
         codes_generated = len(tokens)
-    elif batch.generation_level == "BOTH":
         if not batch.codes:
             tokens.extend(mint_code(batch, code_type))  # one batch-level code
         for i in range(count):
