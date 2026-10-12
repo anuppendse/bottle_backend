@@ -408,6 +408,8 @@ class Product(db.Model):
             "category": self.category.name if self.category else None,
             "manufacturer": self.manufacturer.name,
             "manufacturerId": self.manufacturer_id,
+            "generationLevel": self.manufacturer.generation_level.value,
+            "codeType": self.manufacturer.code_type.value,
             "desc": self.description,
             "shelfLifeMonths": self.shelf_life_months,
             "status": self.status.value,
@@ -415,8 +417,6 @@ class Product(db.Model):
             "lastBatch": last_batch,
             "updated": self.updated_at.isoformat() if self.updated_at else None,
         }
-
-
 class Batch(db.Model):
     __tablename__ = "batches"
     batch_no = db.Column(db.String(UUID_LEN), primary_key=True, default=gen_uuid)
