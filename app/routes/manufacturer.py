@@ -115,12 +115,22 @@ def set_manufacturer_status(manufacturer_id):
 
     if new_status == RecordStatus.INACTIVE:
         if m.products:
-            return jsonify({"error": f"{len(m.products)} product(s) still belong to this manufacturer — reassign or remove them first."}), 409
-        if m.users:
-            return jsonify({"error": f"{len(m.users)} user(s) still belong to this manufacturer — reassign or remove them first."}), 409
+            return jsonify({
+                "error": f"{len(m.products)} product(s) still belong to this manufacturer — reassign or remove them first."
+            }), 409
+
+        # Check only active users
+        active_users = [
+            user for user in m.users
+            if user.status == RecordStatus.ACTIVE
+        ]
+
+        if active_users:
+            return jsonify({
+                "error": f"{len(active_users)} active user(s) still belong to this manufacturer — deactivate or reassign them first."
+            }), 409
 
     m.status = new_status
     db.session.commit()
+
     return jsonify(m.to_dict())
-
-
